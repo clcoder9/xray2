@@ -1,3 +1,41 @@
+import {
+  buildAtlasAxisGeometry,
+  buildCalcaneusGeometry,
+  buildCarpalsGeometry,
+  buildClavicleGeometry,
+  buildCraniumGeometry,
+  buildFemurGeometry,
+  buildFibulaGeometry,
+  buildFootPhalangesGeometry,
+  buildGreaterTrochanterGeometry,
+  buildHandPhalangesGeometry,
+  buildHumeralEpicondylesGeometry,
+  buildHumerusGeometry,
+  buildIliumGeometry,
+  buildIschiumGeometry,
+  buildMandibleGeometry,
+  buildMaxillaGeometry,
+  buildMetacarpalsGeometry,
+  buildPatellaGeometry,
+  buildPubisGeometry,
+  buildRadiusGeometry,
+  buildRibCageSection,
+  buildSacrumGeometry,
+  buildScapulaGeometry,
+  buildSternumGeometry,
+  buildTalusGeometry,
+  buildTarsalsMetatarsalsGeometry,
+  buildTibiaGeometry,
+  buildUlnaGeometry,
+  buildVertebralSection
+} from './boneGeometryBuilders';
+import {
+  buildConvergentFascicles,
+  buildOrganicMuscle,
+  buildRectusAbdominisGeometry,
+  buildSerratusAnteriorGeometry
+} from './muscleGeometryBuilders';
+
 export type PointUV = readonly [number, number];
 
 export interface ArtworkDefinition {
@@ -9,6 +47,14 @@ export interface ArtworkDefinition {
    * - v: proximal (0) -> distal (1) axis along the body segment
    */
   contours: readonly (readonly PointUV[])[];
+  /** Optional negative-space inner cavity/foramina cutouts (e.g. orbits, nasal cavity, obturator foramen) */
+  cutouts?: readonly (readonly PointUV[])[];
+  /** Optional spongy/cancellous trabecular bone zones (epiphyses, vertebral bodies, iliac crest, calcaneus) */
+  trabecularZones?: readonly (readonly PointUV[])[];
+  /** Optional translucent hyaline/fibrocartilage or tendinous intersection zones */
+  cartilageZones?: readonly (readonly PointUV[])[];
+  /** Optional internal osteological ridges, sutures, medullary walls, or curved muscle fascicle paths */
+  detailPaths?: readonly (readonly PointUV[])[];
   /** Primary focal anchor [u, v] used for hit-testing proximity and leader line */
   anchor: PointUV;
   /** Muscle fiber striation angle or bone trabecular axis in segment-local degrees */
@@ -27,24 +73,14 @@ export interface ArtworkDefinition {
 }
 
 /**
- * Helper to generate a smooth anatomical spindle/fusiform or multi-point contour
+ * Helper to generate a smooth organic anatomical spindle/fusiform contour
  * from centerline/width waypoints: [uCenter, v, halfWidth].
  */
 function buildStrip(
   samples: readonly (readonly [number, number, number])[],
   tipTaper = 0.25
 ): PointUV[] {
-  const left: PointUV[] = [];
-  const right: PointUV[] = [];
-  for (let i = 0; i < samples.length; i++) {
-    const [u, v, hw] = samples[i];
-    const edgeFactor =
-      i === 0 || i === samples.length - 1 ? tipTaper : 1;
-    const w = hw * edgeFactor;
-    left.push([u - w, v]);
-    right.unshift([u + w, v]);
-  }
-  return [...left, ...right];
+  return buildOrganicMuscle(samples, tipTaper, 3).contours[0];
 }
 
 function makeEllipse(
@@ -137,7 +173,9 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
   },
   {
     artworkRef: 'm_orbicularis_oculi',
-    contours: [makeEllipse(0.38, 0.44, 0.26, 0.105, 14)],
+    contours: [makeEllipse(0.38, 0.44, 0.26, 0.105, 16)],
+    cutouts: [makeEllipse(0.38, 0.44, 0.13, 0.042, 12)],
+    detailPaths: [makeEllipse(0.38, 0.44, 0.195, 0.072, 14)],
     anchor: [0.38, 0.44],
     fiberAngleDeg: 0,
     tendonProximalRatio: 0.05,
@@ -164,13 +202,24 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
     contours: [
       [
         [0.54, 0.16],
-        [0.88, 0.2],
-        [0.96, 0.38],
-        [0.82, 0.58],
+        [0.72, 0.14],
+        [0.89, 0.2],
+        [0.96, 0.36],
+        [0.86, 0.54],
+        [0.72, 0.62],
         [0.58, 0.52],
         [0.52, 0.34]
       ]
     ],
+    detailPaths: buildConvergentFascicles(
+      [
+        [0.58, 0.18],
+        [0.74, 0.17],
+        [0.88, 0.24],
+        [0.93, 0.36]
+      ],
+      [0.70, 0.57]
+    ),
     anchor: [0.76, 0.36],
     fiberAngleDeg: 78,
     tendonProximalRatio: 0.1,
@@ -195,7 +244,9 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
   },
   {
     artworkRef: 'm_orbicularis_oris',
-    contours: [makeEllipse(0, 0.75, 0.34, 0.105, 14)],
+    contours: [makeEllipse(0, 0.75, 0.34, 0.105, 16)],
+    cutouts: [makeEllipse(0, 0.75, 0.18, 0.028, 12)],
+    detailPaths: [makeEllipse(0, 0.75, 0.26, 0.065, 14)],
     anchor: [0, 0.75],
     fiberAngleDeg: 0,
     tendonProximalRatio: 0.04,
@@ -272,6 +323,7 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
     contours: [
       [
         [0.14, 0.06],
+        [0.34, 0.055],
         [0.54, 0.07],
         [0.84, 0.18],
         [0.82, 0.25],
@@ -279,6 +331,15 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
         [0.12, 0.15]
       ]
     ],
+    detailPaths: buildConvergentFascicles(
+      [
+        [0.16, 0.08],
+        [0.32, 0.075],
+        [0.48, 0.09],
+        [0.20, 0.13]
+      ],
+      [0.81, 0.215]
+    ),
     anchor: [0.48, 0.14],
     fiberAngleDeg: 14,
     tendonProximalRatio: 0.1,
@@ -297,6 +358,15 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
         [0.1, 0.32]
       ]
     ],
+    detailPaths: buildConvergentFascicles(
+      [
+        [0.11, 0.17],
+        [0.11, 0.22],
+        [0.11, 0.27],
+        [0.14, 0.31]
+      ],
+      [0.81, 0.25]
+    ),
     anchor: [0.44, 0.26],
     fiberAngleDeg: -4,
     tendonProximalRatio: 0.12,
@@ -315,6 +385,14 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
         [0.18, 0.39]
       ]
     ],
+    detailPaths: buildConvergentFascicles(
+      [
+        [0.16, 0.34],
+        [0.24, 0.37],
+        [0.36, 0.39]
+      ],
+      [0.80, 0.28]
+    ),
     anchor: [0.46, 0.35],
     fiberAngleDeg: -22,
     tendonProximalRatio: 0.15,
@@ -355,16 +433,7 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
   },
   {
     artworkRef: 'm_serratus_anterior',
-    contours: [
-      [
-        [0.58, 0.34],
-        [0.82, 0.33],
-        [0.78, 0.58],
-        [0.54, 0.54],
-        [0.62, 0.46],
-        [0.54, 0.4]
-      ]
-    ],
+    ...buildSerratusAnteriorGeometry(),
     anchor: [0.68, 0.46],
     fiberAngleDeg: 28,
     tendonProximalRatio: 0.12,
@@ -373,14 +442,7 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
   },
   {
     artworkRef: 'm_rectus_abdominis',
-    contours: [
-      buildStrip([
-        [0.18, 0.39, 0.13],
-        [0.19, 0.55, 0.135],
-        [0.18, 0.72, 0.125],
-        [0.14, 0.92, 0.095]
-      ])
-    ],
+    ...buildRectusAbdominisGeometry(),
     anchor: [0.18, 0.64],
     fiberAngleDeg: 90,
     tendonProximalRatio: 0.1,
@@ -391,14 +453,25 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
     artworkRef: 'm_obliquus_externus_abdominis',
     contours: [
       [
-        [0.46, 0.44],
+        [0.48, 0.42],
+        [0.62, 0.44],
         [0.76, 0.46],
+        [0.75, 0.64],
         [0.72, 0.78],
         [0.58, 0.92],
         [0.34, 0.82],
         [0.36, 0.52]
       ]
     ],
+    detailPaths: buildConvergentFascicles(
+      [
+        [0.68, 0.48],
+        [0.72, 0.56],
+        [0.71, 0.66],
+        [0.68, 0.75]
+      ],
+      [0.42, 0.82]
+    ),
     anchor: [0.54, 0.66],
     fiberAngleDeg: 52,
     tendonProximalRatio: 0.1,
@@ -506,11 +579,21 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
       [
         [0.02, 0.0],
         [0.2, 0.0],
+        [0.46, 0.05],
         [0.72, 0.1],
         [0.64, 0.17],
+        [0.34, 0.165],
         [0.04, 0.16]
       ]
     ],
+    detailPaths: buildConvergentFascicles(
+      [
+        [0.08, 0.02],
+        [0.08, 0.07],
+        [0.08, 0.13]
+      ],
+      [0.68, 0.13]
+    ),
     anchor: [0.35, 0.09],
     fiberAngleDeg: 28,
     tendonProximalRatio: 0.14,
@@ -527,6 +610,14 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
         [0.03, 0.3]
       ]
     ],
+    detailPaths: buildConvergentFascicles(
+      [
+        [0.06, 0.18],
+        [0.06, 0.23],
+        [0.06, 0.28]
+      ],
+      [0.62, 0.22]
+    ),
     anchor: [0.34, 0.23],
     fiberAngleDeg: 0,
     tendonProximalRatio: 0.15,
@@ -543,6 +634,14 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
         [0.03, 0.54]
       ]
     ],
+    detailPaths: buildConvergentFascicles(
+      [
+        [0.06, 0.35],
+        [0.06, 0.43],
+        [0.06, 0.50]
+      ],
+      [0.48, 0.28]
+    ),
     anchor: [0.23, 0.37],
     fiberAngleDeg: -38,
     tendonProximalRatio: 0.14,
@@ -562,6 +661,16 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
         [0.18, 0.78]
       ]
     ],
+    detailPaths: buildConvergentFascicles(
+      [
+        [0.22, 0.46],
+        [0.24, 0.60],
+        [0.24, 0.74],
+        [0.46, 0.84],
+        [0.66, 0.72]
+      ],
+      [0.84, 0.33]
+    ),
     anchor: [0.54, 0.56],
     fiberAngleDeg: -42,
     tendonProximalRatio: 0.22,
@@ -757,19 +866,45 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
     artworkRef: 'm_fascia_thoracolumbalis',
     contours: [
       [
-        [0, 0.54],
-        [0.24, 0.68],
-        [0.22, 0.88],
-        [0, 0.96],
-        [-0.22, 0.88],
-        [-0.24, 0.68]
+        [0, 0.46],
+        [0.12, 0.56],
+        [0.27, 0.69],
+        [0.22, 0.82],
+        [0.12, 0.9],
+        [0, 0.97],
+        [-0.12, 0.9],
+        [-0.22, 0.82],
+        [-0.27, 0.69],
+        [-0.12, 0.56]
       ]
     ],
-    anchor: [0, 0.77],
+    detailPaths: [
+      [
+        [0, 0.48],
+        [0, 0.95]
+      ],
+      [
+        [-0.1, 0.58],
+        [0.2, 0.8]
+      ],
+      [
+        [0.1, 0.58],
+        [-0.2, 0.8]
+      ],
+      [
+        [-0.22, 0.69],
+        [0.1, 0.88]
+      ],
+      [
+        [0.22, 0.69],
+        [-0.1, 0.88]
+      ]
+    ],
+    anchor: [0, 0.74],
     fiberAngleDeg: 45,
-    tendonProximalRatio: 0.45,
-    tendonDistalRatio: 0.45,
-    depthShade: { highlight: 0.78, contrast: 0.42 }
+    tendonProximalRatio: 0.3,
+    tendonDistalRatio: 0.3,
+    depthShade: { highlight: 0.76, contrast: 0.44 }
   },
 
   // =========================================================================
@@ -1199,6 +1334,15 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
         [0.04, 0.56]
       ]
     ],
+    detailPaths: buildConvergentFascicles(
+      [
+        [0.12, 0.28],
+        [0.10, 0.44],
+        [0.10, 0.60],
+        [0.16, 0.78]
+      ],
+      [0.68, 0.72]
+    ),
     anchor: [0.38, 0.58],
     fiberAngleDeg: 42,
     tendonProximalRatio: 0.14,
@@ -1216,6 +1360,14 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
         [0.44, 0.38]
       ]
     ],
+    detailPaths: buildConvergentFascicles(
+      [
+        [0.30, 0.12],
+        [0.48, 0.12],
+        [0.68, 0.14]
+      ],
+      [0.76, 0.54]
+    ),
     anchor: [0.62, 0.3],
     fiberAngleDeg: 64,
     tendonProximalRatio: 0.1,
@@ -1740,156 +1892,121 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
   },
 
   // =========================================================================
-  // B. BONES & PHYSIO LANDMARKS (32)
+  // B. BONES & PHYSIO LANDMARKS (32) — AAA Osteology Atlas Geometry
   // =========================================================================
   {
     artworkRef: 'b_cranium',
-    contours: [makeEllipse(0, 0.29, 0.88, 0.27, 18)],
+    ...buildCraniumGeometry(),
     anchor: [0, 0.27],
     fiberAngleDeg: 0,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
-    depthShade: { highlight: 0.85, contrast: 0.65 }
+    depthShade: { highlight: 0.88, contrast: 0.68 }
   },
   {
     artworkRef: 'b_maxilla',
-    contours: [
-      [
-        [-0.56, 0.48],
-        [0.56, 0.48],
-        [0.46, 0.68],
-        [-0.46, 0.68]
-      ]
-    ],
+    ...buildMaxillaGeometry(),
     anchor: [0, 0.58],
-    fiberAngleDeg: 0,
-    tendonProximalRatio: 0,
-    tendonDistalRatio: 0,
-    depthShade: { highlight: 0.78, contrast: 0.6 }
-  },
-  {
-    artworkRef: 'b_mandibula',
-    contours: [
-      [
-        [-0.78, 0.58],
-        [-0.54, 0.6],
-        [-0.38, 0.78],
-        [0, 0.86],
-        [0.38, 0.78],
-        [0.54, 0.6],
-        [0.78, 0.58],
-        [0.7, 0.82],
-        [0.34, 0.94],
-        [0, 0.96],
-        [-0.34, 0.94],
-        [-0.7, 0.82]
-      ]
-    ],
-    anchor: [0, 0.86],
     fiberAngleDeg: 0,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
     depthShade: { highlight: 0.82, contrast: 0.64 }
   },
   {
+    artworkRef: 'b_mandibula',
+    ...buildMandibleGeometry(),
+    anchor: [0, 0.86],
+    fiberAngleDeg: 0,
+    tendonProximalRatio: 0,
+    tendonDistalRatio: 0,
+    depthShade: { highlight: 0.85, contrast: 0.66 }
+  },
+  {
     artworkRef: 'b_atlas_axis',
-    contours: [
-      [
-        [-0.24, 0.08],
-        [0.24, 0.08],
-        [0.2, 0.3],
-        [-0.2, 0.3]
-      ]
-    ],
+    ...buildAtlasAxisGeometry(),
     anchor: [0, 0.19],
     fiberAngleDeg: 0,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
-    depthShade: { highlight: 0.82, contrast: 0.66 }
+    depthShade: { highlight: 0.85, contrast: 0.68 }
   },
   {
     artworkRef: 'b_vertebrae_cervicales',
-    contours: makeRays([0], 0.32, 0.94, 0.18),
+    ...buildVertebralSection({
+      count: 5,
+      vStart: 0.32,
+      vEnd: 0.94,
+      bodyHWStart: 0.145,
+      bodyHWEnd: 0.185,
+      transSpanStart: 0.26,
+      transSpanEnd: 0.34,
+      spinousDrop: 0.025,
+      includeBottomDisc: true
+    }),
     anchor: [0, 0.62],
     fiberAngleDeg: 90,
-    tendonProximalRatio: 0,
-    tendonDistalRatio: 0,
-    depthShade: { highlight: 0.84, contrast: 0.68 }
-  },
-  {
-    artworkRef: 'b_clavicula',
-    contours: [
-      buildStrip(
-        [
-          [0.08, 0.075, 0.028],
-          [0.44, 0.045, 0.024],
-          [0.78, 0.075, 0.03]
-        ],
-        0.75
-      )
-    ],
-    anchor: [0.44, 0.06],
-    fiberAngleDeg: 0,
-    tendonProximalRatio: 0,
-    tendonDistalRatio: 0,
-    depthShade: { highlight: 0.88, contrast: 0.66 }
-  },
-  {
-    artworkRef: 'b_sternum',
-    contours: [
-      [
-        [-0.1, 0.08],
-        [0.1, 0.08],
-        [0.07, 0.18],
-        [0.06, 0.38],
-        [0, 0.44],
-        [-0.06, 0.38],
-        [-0.07, 0.18]
-      ]
-    ],
-    anchor: [0, 0.24],
-    fiberAngleDeg: 90,
-    tendonProximalRatio: 0,
-    tendonDistalRatio: 0,
-    depthShade: { highlight: 0.88, contrast: 0.68 }
-  },
-  {
-    artworkRef: 'b_costae_verae',
-    contours: makeRibs(0.11, 0.048, 7, 0.08, 0.72, 0.015),
-    anchor: [0.4, 0.26],
-    fiberAngleDeg: 10,
-    tendonProximalRatio: 0,
-    tendonDistalRatio: 0,
-    depthShade: { highlight: 0.82, contrast: 0.62 }
-  },
-  {
-    artworkRef: 'b_costae_spuriae',
-    contours: makeRibs(0.45, 0.046, 5, 0.14, 0.7, 0.014),
-    anchor: [0.42, 0.54],
-    fiberAngleDeg: 14,
-    tendonProximalRatio: 0,
-    tendonDistalRatio: 0,
-    depthShade: { highlight: 0.78, contrast: 0.6 }
-  },
-  {
-    artworkRef: 'b_scapula',
-    contours: [
-      [
-        [0.36, 0.13],
-        [0.82, 0.14],
-        [0.64, 0.38],
-        [0.38, 0.35]
-      ]
-    ],
-    anchor: [0.55, 0.25],
-    fiberAngleDeg: -16,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
     depthShade: { highlight: 0.86, contrast: 0.68 }
   },
   {
+    artworkRef: 'b_clavicula',
+    ...buildClavicleGeometry(),
+    anchor: [0.46, 0.058],
+    fiberAngleDeg: 0,
+    tendonProximalRatio: 0,
+    tendonDistalRatio: 0,
+    depthShade: { highlight: 0.9, contrast: 0.68 }
+  },
+  {
+    artworkRef: 'b_sternum',
+    ...buildSternumGeometry(),
+    anchor: [0, 0.24],
+    fiberAngleDeg: 90,
+    tendonProximalRatio: 0,
+    tendonDistalRatio: 0,
+    depthShade: { highlight: 0.9, contrast: 0.7 }
+  },
+  {
+    artworkRef: 'b_costae_verae',
+    ...buildRibCageSection({ isTrueRibs: true }),
+    anchor: [0.42, 0.26],
+    fiberAngleDeg: 10,
+    tendonProximalRatio: 0,
+    tendonDistalRatio: 0,
+    depthShade: { highlight: 0.86, contrast: 0.64 }
+  },
+  {
+    artworkRef: 'b_costae_spuriae',
+    ...buildRibCageSection({ isTrueRibs: false }),
+    anchor: [0.44, 0.54],
+    fiberAngleDeg: 14,
+    tendonProximalRatio: 0,
+    tendonDistalRatio: 0,
+    depthShade: { highlight: 0.82, contrast: 0.62 }
+  },
+  {
+    artworkRef: 'b_scapula',
+    ...buildScapulaGeometry(),
+    anchor: [0.58, 0.24],
+    fiberAngleDeg: -16,
+    tendonProximalRatio: 0,
+    tendonDistalRatio: 0,
+    depthShade: { highlight: 0.88, contrast: 0.68 }
+  },
+  {
     artworkRef: 'b_vertebrae_thoracicae',
-    contours: makeRays([0], 0.02, 0.56, 0.09),
+    ...buildVertebralSection({
+      count: 12,
+      vStart: 0.02,
+      vEnd: 0.56,
+      bodyHWStart: 0.056,
+      bodyHWEnd: 0.088,
+      transSpanStart: 0.108,
+      transSpanEnd: 0.145,
+      spinousDrop: 0.016,
+      includeBottomDisc: true
+    }),
     anchor: [0, 0.29],
     fiberAngleDeg: 90,
     tendonProximalRatio: 0,
@@ -1898,7 +2015,17 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
   },
   {
     artworkRef: 'b_vertebrae_lumbales',
-    contours: makeRays([0], 0.58, 0.94, 0.11),
+    ...buildVertebralSection({
+      count: 5,
+      vStart: 0.57,
+      vEnd: 0.94,
+      bodyHWStart: 0.095,
+      bodyHWEnd: 0.125,
+      transSpanStart: 0.165,
+      transSpanEnd: 0.205,
+      spinousDrop: 0.018,
+      includeBottomDisc: true
+    }),
     anchor: [0, 0.76],
     fiberAngleDeg: 90,
     tendonProximalRatio: 0,
@@ -1907,27 +2034,17 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
   },
   {
     artworkRef: 'b_humerus',
-    contours: [
-      buildStrip(
-        [
-          [0.0, 0.04, 0.17],
-          [0.0, 0.22, 0.1],
-          [0.0, 0.52, 0.09],
-          [0.0, 0.88, 0.15]
-        ],
-        0.78
-      )
-    ],
+    ...buildHumerusGeometry(),
     anchor: [0.0, 0.48],
     fiberAngleDeg: 90,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
-    depthShade: { highlight: 0.88, contrast: 0.68 }
+    depthShade: { highlight: 0.9, contrast: 0.7 }
   },
   {
     artworkRef: 'b_epicondylus_humeri',
-    contours: [makeEllipse(0, 0.94, 0.24, 0.06, 12)],
-    anchor: [0, 0.94],
+    ...buildHumeralEpicondylesGeometry(),
+    anchor: [0, 0.92],
     fiberAngleDeg: 0,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
@@ -1935,44 +2052,26 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
   },
   {
     artworkRef: 'b_radius',
-    contours: [
-      buildStrip(
-        [
-          [0.12, 0.06, 0.09],
-          [0.14, 0.48, 0.075],
-          [0.14, 0.94, 0.12]
-        ],
-        0.78
-      )
-    ],
-    anchor: [0.14, 0.5],
+    ...buildRadiusGeometry(),
+    anchor: [0.15, 0.5],
     fiberAngleDeg: 90,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
-    depthShade: { highlight: 0.86, contrast: 0.66 }
+    depthShade: { highlight: 0.88, contrast: 0.68 }
   },
   {
     artworkRef: 'b_ulna',
-    contours: [
-      buildStrip(
-        [
-          [-0.12, 0.02, 0.12],
-          [-0.14, 0.48, 0.075],
-          [-0.14, 0.94, 0.07]
-        ],
-        0.78
-      )
-    ],
-    anchor: [-0.14, 0.48],
+    ...buildUlnaGeometry(),
+    anchor: [-0.15, 0.48],
     fiberAngleDeg: 90,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
-    depthShade: { highlight: 0.86, contrast: 0.66 }
+    depthShade: { highlight: 0.88, contrast: 0.68 }
   },
   {
     artworkRef: 'b_ossa_carpi',
-    contours: [makeEllipse(0, 0.1, 0.34, 0.1, 12)],
-    anchor: [0, 0.1],
+    ...buildCarpalsGeometry(),
+    anchor: [0.04, 0.1],
     fiberAngleDeg: 0,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
@@ -1980,8 +2079,8 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
   },
   {
     artworkRef: 'b_ossa_metacarpi',
-    contours: makeRays([-0.24, -0.08, 0.06, 0.2, 0.36], 0.2, 0.54, 0.042),
-    anchor: [0.06, 0.37],
+    ...buildMetacarpalsGeometry(),
+    anchor: [0.04, 0.37],
     fiberAngleDeg: 90,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
@@ -1989,8 +2088,8 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
   },
   {
     artworkRef: 'b_phalanges_manus',
-    contours: makeRays([-0.26, -0.1, 0.06, 0.22, 0.4], 0.56, 0.96, 0.036),
-    anchor: [0.06, 0.76],
+    ...buildHandPhalangesGeometry(),
+    anchor: [0.04, 0.76],
     fiberAngleDeg: 90,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
@@ -1998,15 +2097,7 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
   },
   {
     artworkRef: 'b_os_ilium',
-    contours: [
-      [
-        [0.2, 0.1],
-        [0.74, 0.06],
-        [0.92, 0.32],
-        [0.64, 0.56],
-        [0.24, 0.48]
-      ]
-    ],
+    ...buildIliumGeometry(),
     anchor: [0.56, 0.3],
     fiberAngleDeg: 18,
     tendonProximalRatio: 0,
@@ -2015,41 +2106,26 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
   },
   {
     artworkRef: 'b_os_ischii',
-    contours: [makeEllipse(0.36, 0.76, 0.18, 0.14, 12)],
-    anchor: [0.36, 0.76],
+    ...buildIschiumGeometry(),
+    anchor: [0.42, 0.76],
     fiberAngleDeg: 0,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
-    depthShade: { highlight: 0.84, contrast: 0.66 }
+    depthShade: { highlight: 0.86, contrast: 0.68 }
   },
   {
     artworkRef: 'b_os_pubis',
-    contours: [
-      [
-        [-0.36, 0.6],
-        [0.36, 0.6],
-        [0.28, 0.82],
-        [-0.28, 0.82]
-      ]
-    ],
-    anchor: [0, 0.71],
+    ...buildPubisGeometry(),
+    anchor: [0, 0.7],
     fiberAngleDeg: 0,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
-    depthShade: { highlight: 0.85, contrast: 0.66 }
+    depthShade: { highlight: 0.86, contrast: 0.68 }
   },
   {
     artworkRef: 'b_os_sacrum',
-    contours: [
-      [
-        [-0.26, 0.18],
-        [0.26, 0.18],
-        [0.14, 0.64],
-        [0, 0.82],
-        [-0.14, 0.64]
-      ]
-    ],
-    anchor: [0, 0.48],
+    ...buildSacrumGeometry(),
+    anchor: [0, 0.46],
     fiberAngleDeg: 90,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
@@ -2057,26 +2133,16 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
   },
   {
     artworkRef: 'b_femur',
-    contours: [
-      buildStrip(
-        [
-          [-0.08, 0.03, 0.14],
-          [0.08, 0.12, 0.11],
-          [0.02, 0.5, 0.1],
-          [0.0, 0.9, 0.18]
-        ],
-        0.78
-      )
-    ],
+    ...buildFemurGeometry(),
     anchor: [0.03, 0.48],
     fiberAngleDeg: 90,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
-    depthShade: { highlight: 0.9, contrast: 0.7 }
+    depthShade: { highlight: 0.92, contrast: 0.72 }
   },
   {
     artworkRef: 'b_trochanter_major',
-    contours: [makeEllipse(0.84, 0.58, 0.12, 0.12, 12)],
+    ...buildGreaterTrochanterGeometry(),
     anchor: [0.84, 0.58],
     fiberAngleDeg: 0,
     tendonProximalRatio: 0,
@@ -2085,8 +2151,8 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
   },
   {
     artworkRef: 'b_patella',
-    contours: [makeEllipse(0, 0.96, 0.13, 0.06, 12)],
-    anchor: [0, 0.96],
+    ...buildPatellaGeometry(),
+    anchor: [0, 0.955],
     fiberAngleDeg: 0,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
@@ -2094,16 +2160,7 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
   },
   {
     artworkRef: 'b_tibia',
-    contours: [
-      buildStrip(
-        [
-          [-0.06, 0.04, 0.17],
-          [-0.06, 0.48, 0.1],
-          [-0.08, 0.95, 0.13]
-        ],
-        0.8
-      )
-    ],
+    ...buildTibiaGeometry(),
     anchor: [-0.06, 0.48],
     fiberAngleDeg: 90,
     tendonProximalRatio: 0,
@@ -2112,26 +2169,17 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
   },
   {
     artworkRef: 'b_fibula',
-    contours: [
-      buildStrip(
-        [
-          [0.2, 0.08, 0.08],
-          [0.2, 0.5, 0.05],
-          [0.2, 0.96, 0.08]
-        ],
-        0.78
-      )
-    ],
-    anchor: [0.2, 0.5],
+    ...buildFibulaGeometry(),
+    anchor: [0.21, 0.5],
     fiberAngleDeg: 90,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
-    depthShade: { highlight: 0.86, contrast: 0.66 }
+    depthShade: { highlight: 0.88, contrast: 0.68 }
   },
   {
     artworkRef: 'b_talus',
-    contours: [makeEllipse(0, 0.14, 0.24, 0.12, 12)],
-    anchor: [0, 0.14],
+    ...buildTalusGeometry(),
+    anchor: [0, 0.145],
     fiberAngleDeg: 0,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
@@ -2139,8 +2187,8 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
   },
   {
     artworkRef: 'b_calcaneus',
-    contours: [makeEllipse(0, 0.24, 0.28, 0.18, 12)],
-    anchor: [0, 0.24],
+    ...buildCalcaneusGeometry(),
+    anchor: [0, 0.23],
     fiberAngleDeg: 90,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
@@ -2148,8 +2196,8 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
   },
   {
     artworkRef: 'b_ossa_tarsi_metatarsi',
-    contours: makeRays([-0.24, -0.1, 0.04, 0.18, 0.3], 0.26, 0.64, 0.05),
-    anchor: [0.02, 0.45],
+    ...buildTarsalsMetatarsalsGeometry(),
+    anchor: [0.02, 0.46],
     fiberAngleDeg: 90,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
@@ -2157,7 +2205,7 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
   },
   {
     artworkRef: 'b_phalanges_pedis',
-    contours: makeRays([-0.26, -0.1, 0.04, 0.18, 0.32], 0.68, 0.96, 0.044),
+    ...buildFootPhalangesGeometry(),
     anchor: [0.02, 0.82],
     fiberAngleDeg: 90,
     tendonProximalRatio: 0,
@@ -2166,6 +2214,40 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
   }
 ];
 
+function deriveMuscleDetailPaths(def: ArtworkDefinition): readonly (readonly PointUV[])[] | undefined {
+  if (def.detailPaths && def.detailPaths.length > 0) return def.detailPaths;
+  if (def.artworkRef.startsWith('b_')) return def.detailPaths;
+
+  const poly = def.contours[0];
+  if (!poly || poly.length < 6) return undefined;
+  // For symmetric strip contours (left edge down, right edge up), extract curved centerline & offset fibers
+  const half = Math.floor(poly.length / 2);
+  if (poly.length >= 12) {
+    const center: PointUV[] = [];
+    const innerL: PointUV[] = [];
+    const innerR: PointUV[] = [];
+    for (let i = 1; i < half - 1; i++) {
+      const l = poly[i];
+      const r = poly[poly.length - 1 - i];
+      const cu = (l[0] + r[0]) * 0.5;
+      const cv = (l[1] + r[1]) * 0.5;
+      center.push([cu, cv]);
+      innerL.push([cu + (l[0] - cu) * 0.48, cv + (l[1] - cv) * 0.48]);
+      innerR.push([cu + (r[0] - cu) * 0.48, cv + (r[1] - cv) * 0.48]);
+    }
+    if (center.length >= 2) {
+      return [center, innerL, innerR];
+    }
+  }
+  return undefined;
+}
+
 export const ANATOMY_ARTWORK_REGISTRY: ReadonlyMap<string, ArtworkDefinition> = new Map(
-  DEFINITIONS.map((def) => [def.artworkRef, def])
+  DEFINITIONS.map((def) => [
+    def.artworkRef,
+    {
+      ...def,
+      detailPaths: deriveMuscleDetailPaths(def)
+    }
+  ])
 );

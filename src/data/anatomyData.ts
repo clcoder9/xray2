@@ -2018,7 +2018,7 @@ export const ANATOMY_STRUCTURES: readonly AnatomyStructure[] = [
       de: 'Untere fünf Halswirbel in physiologischer Vorwärtskrümmung (Lordose), wobei C7 (Vertebra prominens) hinten deutlich tastbar vorsteht. Sie tragen das Kopfgewicht und bieten maximale Beweglichkeit in allen Ebenen.',
       en: 'Lower five cervical vertebrae forming a gentle anterior curve (lordosis), with C7 palpable as the prominent bony bump at the base of the neck. They support the head while allowing multi-planar motion.'
     },
-    view: 'back',
+    view: 'both',
     segment: 'neck',
     artworkRef: 'b_vertebrae_cervicales',
     sidedness: 'midline',
@@ -2126,7 +2126,7 @@ export const ANATOMY_STRUCTURES: readonly AnatomyStructure[] = [
       de: 'Zwölf Brustwirbel in sanfter Rückwärtskrümmung (Kyphose), die über Gelenkflächen mit allen zwölf Rippenpaaren verbunden sind. Die Brustwirbelsäule ist das Hauptzentrum der Rumpfrotation und entscheidend für schmerzfreie Überkopfmobilität.',
       en: 'Twelve thoracic vertebrae forming a gentle kyphotic curve and articulating with all twelve rib pairs. Thoracic extension and rotation mobility directly govern overhead shoulder mechanics.'
     },
-    view: 'back',
+    view: 'both',
     segment: 'torso',
     artworkRef: 'b_vertebrae_thoracicae',
     sidedness: 'midline',
@@ -2144,7 +2144,7 @@ export const ANATOMY_STRUCTURES: readonly AnatomyStructure[] = [
       de: 'Fünf große, massive Lendenwirbel in physiologischer Lordose oberhalb des Kreuzbeins. Ihre starken Wirbelkörper tragen den Großteil des Oberkörpergewichts und sind auf Beugung, Streckung und hohe axiale Lastübertragung ausgelegt.',
       en: 'Five large, weight-bearing lumbar vertebrae curving into a natural lordosis above the sacrum. Built for sagittal flexion-extension and high compressive loads during squats and deadlifts.'
     },
-    view: 'back',
+    view: 'both',
     segment: 'torso',
     artworkRef: 'b_vertebrae_lumbales',
     sidedness: 'midline',
@@ -2306,7 +2306,7 @@ export const ANATOMY_STRUCTURES: readonly AnatomyStructure[] = [
       de: 'Unterer hinterer Teil des Beckens mit dem kräftigen Sitzbeinhöcker als Hauptbelastungspunkt im Sitzen. Hier entspringen sämtliche Hamstrings (hintere Oberschenkelmuskulatur) und Teile des Adductor magnus.',
       en: 'Posteroinferior pelvic bone bearing the rugged ischial tuberosity (sit bone). It serves as the proximal origin for all three hamstring muscles and the sacrotuberous ligament.'
     },
-    view: 'back',
+    view: 'both',
     segment: 'pelvis',
     artworkRef: 'b_os_ischii',
     sidedness: 'bilateral',
@@ -2342,11 +2342,11 @@ export const ANATOMY_STRUCTURES: readonly AnatomyStructure[] = [
       de: 'Keilförmiger Knochen aus fünf verschmolzenen Kreuzwirbeln und dem kleinen Steißbein am unteren Ende der Wirbelsäule. Über die Iliosakralgelenke (ISG) leitet es das gesamte Oberkörpergewicht auf den Beckenring und die Beine.',
       en: 'Triangular bone formed by five fused sacral vertebrae and the terminal coccyx forming the posterior keystone of the pelvis. Through the sacroiliac joints it transfers upper-body loads into the lower extremities.'
     },
-    view: 'back',
+    view: 'both',
     segment: 'pelvis',
     artworkRef: 'b_os_sacrum',
     sidedness: 'midline',
-    layerOrder: 2
+    layerOrder: 1
   },
   {
     id: 'b_femur',

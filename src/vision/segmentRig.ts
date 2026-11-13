@@ -43,10 +43,18 @@ export interface RenderedStructureInstance {
   segmentKey: string;
   anchor: ScreenPoint;
   contours: ScreenPoint[][];
+  cutouts: ScreenPoint[][];
+  trabecularZones: ScreenPoint[][];
+  cartilageZones: ScreenPoint[][];
+  detailPaths: ScreenPoint[][];
   bounds: { minX: number; minY: number; maxX: number; maxY: number };
   fiberScreenAngleRad: number;
   proximalPt: ScreenPoint;
   distalPt: ScreenPoint;
+  axisU: ScreenPoint;
+  axisV: ScreenPoint;
+  halfWidth: number;
+  length: number;
 }
 
 const MIN_CONFIDENCE = 0.45;
@@ -689,6 +697,15 @@ function getBoxKeysForStructure(
   ];
 }
 
+function projectPolyList(
+  polys: readonly (readonly PointUV[])[] | undefined,
+  box: SegmentBox,
+  uSign: number
+): ScreenPoint[][] {
+  if (!polys || polys.length === 0) return [];
+  return polys.map((poly) => poly.map((uv) => projectPoint(uv, box, uSign)));
+}
+
 /**
  * Generates all transformed, screen-space anatomical structure instances
  * for the given layer ('bone' | 'muscle') and view ('front' | 'back').
@@ -736,6 +753,11 @@ export function projectStructuresToScreen(
         contours.push(pts);
       }
 
+      const cutouts = projectPolyList(art.cutouts, box, target.uSign);
+      const trabecularZones = projectPolyList(art.trabecularZones, box, target.uSign);
+      const cartilageZones = projectPolyList(art.cartilageZones, box, target.uSign);
+      const detailPaths = projectPolyList(art.detailPaths, box, target.uSign);
+
       // Compute fiber angle in screen space from local segment basis
       const radLocal = (art.fiberAngleDeg * Math.PI) / 180;
       const localDu = Math.cos(radLocal) * target.uSign;
@@ -746,6 +768,10 @@ export function projectStructuresToScreen(
 
       const proximalPt = projectPoint([art.anchor[0], minV], box, target.uSign);
       const distalPt = projectPoint([art.anchor[0], maxV], box, target.uSign);
+      const orientedAxisU: ScreenPoint = {
+        x: box.axisU.x * target.uSign,
+        y: box.axisU.y * target.uSign
+      };
 
       instances.push({
         instanceId: `${structure.id}:${target.side}`,
@@ -754,10 +780,18 @@ export function projectStructuresToScreen(
         segmentKey: target.key,
         anchor,
         contours,
+        cutouts,
+        trabecularZones,
+        cartilageZones,
+        detailPaths,
         bounds: { minX, minY, maxX, maxY },
         fiberScreenAngleRad,
         proximalPt,
-        distalPt
+        distalPt,
+        axisU: orientedAxisU,
+        axisV: box.axisV,
+        halfWidth: box.halfWidth,
+        length: box.length
       });
     }
   }

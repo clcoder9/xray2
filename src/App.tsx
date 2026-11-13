@@ -407,7 +407,7 @@ export function App() {
     setLiveAnnouncement(getUIText(uiLang).lensResetHint);
   }, [uiLang]);
 
-  // Helper to draw synthetic motion figure onto offscreen canvas for motion_loop mode
+  // Helper to draw studio-lit, anatomically contoured motion figure onto offscreen canvas for motion_loop mode
   const getMotionCanvas = useCallback((nowMs: number): HTMLCanvasElement => {
     if (!motionCanvasRef.current) {
       motionCanvasRef.current = document.createElement('canvas');
@@ -418,53 +418,130 @@ export function App() {
     const mctx = mc.getContext('2d')!;
     const lms = getDevSampleLandmarks('motion_loop', nowMs);
 
-    const grad = mctx.createRadialGradient(360, 400, 60, 360, 540, 680);
-    grad.addColorStop(0, '#283548');
-    grad.addColorStop(1, '#0b1019');
+    const grad = mctx.createRadialGradient(360, 380, 60, 360, 540, 700);
+    grad.addColorStop(0, '#223149');
+    grad.addColorStop(0.55, '#111827');
+    grad.addColorStop(1, '#060a12');
     mctx.fillStyle = grad;
     mctx.fillRect(0, 0, 720, 1080);
 
     const pt = (idx: number) => ({ x: lms[idx].x * 720, y: lms[idx].y * 1080 });
-    const limb = (a: number, b: number, width: number, color = '#d69e7b') => {
-      const pa = pt(a);
-      const pb = pt(b);
-      mctx.strokeStyle = color;
-      mctx.lineWidth = width;
-      mctx.lineCap = 'round';
+    const drawTaperedLimb = (
+      aIdx: number,
+      bIdx: number,
+      wStart: number,
+      wEnd: number
+    ) => {
+      const a = pt(aIdx);
+      const b = pt(bIdx);
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len = Math.max(1, Math.hypot(dx, dy));
+      const nx = -dy / len;
+      const ny = dx / len;
+      const mx = (a.x + b.x) * 0.5;
+      const my = (a.y + b.y) * 0.5;
+      const wMid = (wStart + wEnd) * 0.56;
+
+      const lGrad = mctx.createLinearGradient(
+        mx - nx * wMid,
+        my - ny * wMid,
+        mx + nx * wMid,
+        my + ny * wMid
+      );
+      lGrad.addColorStop(0, '#98674b');
+      lGrad.addColorStop(0.42, '#e1ac8b');
+      lGrad.addColorStop(1, '#98674b');
+
+      mctx.fillStyle = lGrad;
       mctx.beginPath();
-      mctx.moveTo(pa.x, pa.y);
-      mctx.lineTo(pb.x, pb.y);
-      mctx.stroke();
+      mctx.moveTo(a.x - nx * wStart, a.y - ny * wStart);
+      mctx.quadraticCurveTo(mx - nx * wMid, my - ny * wMid, b.x - nx * wEnd, b.y - ny * wEnd);
+      mctx.arc(b.x, b.y, wEnd, Math.atan2(-ny, -nx), Math.atan2(ny, nx));
+      mctx.quadraticCurveTo(mx + nx * wMid, my + ny * wMid, a.x + nx * wStart, a.y + ny * wStart);
+      mctx.arc(a.x, a.y, wStart, Math.atan2(ny, nx), Math.atan2(-ny, -nx));
+      mctx.closePath();
+      mctx.fill();
     };
 
-    // Torso
     const ls = pt(11);
     const rs = pt(12);
     const lh = pt(23);
     const rh = pt(24);
-    mctx.fillStyle = '#d69e7b';
+    const nose = pt(0);
+    const shoulderMid = { x: (ls.x + rs.x) * 0.5, y: (ls.y + rs.y) * 0.5 };
+
+    // Studio floor shadow
+    mctx.fillStyle = 'rgba(0, 0, 0, 0.42)';
     mctx.beginPath();
-    mctx.moveTo(rs.x - 16, rs.y);
-    mctx.lineTo(ls.x + 16, ls.y);
-    mctx.lineTo(lh.x + 14, lh.y);
-    mctx.lineTo(rh.x - 14, rh.y);
+    mctx.ellipse(shoulderMid.x, 1015, 200, 24, 0, 0, Math.PI * 2);
+    mctx.fill();
+
+    // Neck & trapezius slope
+    const torsoGrad = mctx.createLinearGradient(rs.x, shoulderMid.y, ls.x, shoulderMid.y);
+    torsoGrad.addColorStop(0, '#9e6d51');
+    torsoGrad.addColorStop(0.5, '#e7b493');
+    torsoGrad.addColorStop(1, '#9e6d51');
+    mctx.fillStyle = torsoGrad;
+    mctx.beginPath();
+    mctx.moveTo(nose.x - 24, nose.y + 42);
+    mctx.lineTo(nose.x + 24, nose.y + 42);
+    mctx.quadraticCurveTo(nose.x + 34, ls.y - 16, ls.x + 4, ls.y);
+    mctx.lineTo(rs.x - 4, rs.y);
+    mctx.quadraticCurveTo(nose.x - 34, rs.y - 16, nose.x - 24, nose.y + 42);
     mctx.closePath();
     mctx.fill();
 
-    // Head & Neck
-    const nose = pt(0);
-    mctx.fillStyle = '#d69e7b';
+    // Sculpted Torso
+    mctx.fillStyle = torsoGrad;
+    mctx.beginPath();
+    mctx.moveTo(rs.x - 6, rs.y - 4);
+    mctx.quadraticCurveTo(shoulderMid.x, shoulderMid.y - 16, ls.x + 6, ls.y - 4);
+    mctx.quadraticCurveTo(ls.x - 6, (ls.y + lh.y) * 0.5, lh.x + 6, lh.y + 12);
+    mctx.lineTo(rh.x - 6, rh.y + 12);
+    mctx.quadraticCurveTo(rs.x + 6, (rs.y + rh.y) * 0.5, rs.x - 6, rs.y - 4);
+    mctx.closePath();
+    mctx.fill();
+
+    // Limbs (Arms + Hands, Legs + Feet)
+    drawTaperedLimb(11, 13, 24, 18);
+    drawTaperedLimb(13, 15, 17, 12);
+    drawTaperedLimb(15, 19, 13, 11);
+    drawTaperedLimb(12, 14, 24, 18);
+    drawTaperedLimb(14, 16, 17, 12);
+    drawTaperedLimb(16, 20, 13, 11);
+
+    drawTaperedLimb(23, 25, 32, 24);
+    drawTaperedLimb(25, 27, 23, 15);
+    drawTaperedLimb(29, 31, 16, 17);
+    drawTaperedLimb(24, 26, 32, 24);
+    drawTaperedLimb(26, 28, 23, 15);
+    drawTaperedLimb(30, 32, 16, 17);
+
+    // Athletic compression shorts
+    mctx.fillStyle = '#1e293b';
+    mctx.beginPath();
+    mctx.moveTo(rh.x - 16, rh.y - 34);
+    mctx.lineTo(lh.x + 16, lh.y - 34);
+    mctx.lineTo(lh.x + 26, lh.y + 66);
+    mctx.lineTo((lh.x + rh.x) * 0.5 + 4, lh.y + 24);
+    mctx.lineTo(rh.x - 26, rh.y + 66);
+    mctx.closePath();
+    mctx.fill();
+
+    // Head & Hair
+    const headGrad = mctx.createRadialGradient(nose.x - 6, nose.y - 10, 8, nose.x, nose.y, 58);
+    headGrad.addColorStop(0, '#ebba9a');
+    headGrad.addColorStop(1, '#9a684c');
+    mctx.fillStyle = headGrad;
     mctx.beginPath();
     mctx.ellipse(nose.x, nose.y, 44, 54, 0, 0, Math.PI * 2);
     mctx.fill();
-    limb(11, 13, 34);
-    limb(13, 15, 26);
-    limb(12, 14, 34);
-    limb(14, 16, 26);
-    limb(23, 25, 52);
-    limb(25, 27, 36);
-    limb(24, 26, 52);
-    limb(26, 28, 36);
+
+    mctx.fillStyle = '#1c1816';
+    mctx.beginPath();
+    mctx.ellipse(nose.x, nose.y - 28, 42, 26, 0, Math.PI, Math.PI * 2);
+    mctx.fill();
 
     return mc;
   }, []);
