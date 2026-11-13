@@ -1,0 +1,28 @@
+{
+  "name": "anatomy-lens",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test:unit": "vitest run",
+    "test:e2e": "playwright test",
+    "test": "npm.cmd run test:unit && npm.cmd run test:e2e"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "^0.10.22-rc.20250304",
+    "preact": "^10.26.4"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.51.1",
+    "@preact/preset-vite": "^2.9.3",
+    "jsdom": "^26.0.0",
+    "sharp": "^0.33.5",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.2",
+    "vite-plugin-pwa": "^0.21.1",
+    "vitest": "^3.0.8"
+  }
+}

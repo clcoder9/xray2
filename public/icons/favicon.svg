@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="45%" r="65%">
+      <stop offset="0%" stop-color="#0f2744"/>
+      <stop offset="100%" stop-color="#060a12"/>
+    </radialGradient>
+    <radialGradient id="lens" cx="45%" cy="40%" r="55%">
+      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.32"/>
+      <stop offset="70%" stop-color="#0284c7" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#0f172a" stop-opacity="0.9"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <circle cx="256" cy="256" r="164" fill="url(#lens)" stroke="#38bdf8" stroke-width="14"/>
+  <circle cx="256" cy="256" r="128" fill="none" stroke="#bae6fd" stroke-width="2" stroke-dasharray="10 10" opacity="0.5"/>
+  <!-- Stylized X-ray humerus + muscle fibers inside lens -->
+  <path d="M214 148c16-14 36-14 48 0 10 12 8 34-4 58v104c12 24 14 46 4 58-12 14-32 14-48 0-12-12-10-34 2-58V206c-12-24-14-46-2-58z" fill="#e0f2fe" opacity="0.9"/>
+  <path d="M276 168c32 22 44 62 34 106-8 36-24 64-44 76 12-34 14-76 6-114-4-24-8-46 4-68z" fill="#ef4444" opacity="0.92"/>
+  <circle cx="256" cy="256" r="10" fill="#22d3ee"/>
+</svg>
