@@ -156,4 +156,96 @@ describe('Focus selection, tap-to-pin, partial bodies & anatomical left/right', 
 
     expect(totalMuscleSpan).toBeGreaterThanOrEqual(headFullWidth * 0.7);
   });
+
+  it('stabilizes lateral torso/pelvis rig widths and culls far-side structures', () => {
+    const lateral = getDevSampleLandmarks('lateral');
+    const vp = computeFrameViewport(720, 1080, 1280, 720, 'contain');
+    const rig = buildSegmentRig(lateral, vp, false, {
+      view: 'left',
+      rawScore: 0,
+      smoothedScore: 0,
+      bodyYawDeg: 88,
+      head: {
+        yawRad: Math.PI / 2,
+        yawDeg: 90,
+        pitchRatio: 0,
+        view: 'left',
+        facingSign: -1,
+        jawOpen: 0
+      }
+    });
+
+    const torso = rig.get('torso');
+    const pelvis = rig.get('pelvis');
+    expect(torso).toBeDefined();
+    expect(pelvis).toBeDefined();
+    expect(torso!.halfWidth).toBeGreaterThan(torso!.length * 0.18);
+    expect(pelvis!.halfWidth).toBeGreaterThan(pelvis!.length * 0.45);
+    const dot = torso!.axisU.x * torso!.axisV.x + torso!.axisU.y * torso!.axisV.y;
+    expect(Math.abs(dot)).toBeLessThan(1e-3);
+
+    const lateralMuscles = projectStructuresToScreen(rig, 'muscle', 'left');
+    const rightSides = lateralMuscles.filter((m) => m.side === 'right');
+    expect(rightSides.length).toBe(0);
+    expect(lateralMuscles.some((m) => m.side === 'left')).toBe(true);
+    expect(lateralMuscles.some((m) => m.side === 'midline')).toBe(true);
+  });
+
+  it('articulates mandible and mastication/oral muscles downward while keeping cranium/maxilla fixed', () => {
+    const front = getDevSampleLandmarks('anterior');
+    const vp = computeFrameViewport(720, 1080, 1280, 720, 'contain');
+
+    const runCase = (view: 'front' | 'left', jawOpen: number) => {
+      const rig = buildSegmentRig(front, vp, false, {
+        view,
+        rawScore: view === 'front' ? 1 : 0,
+        smoothedScore: view === 'front' ? 1 : 0,
+        bodyYawDeg: view === 'front' ? 0 : 90,
+        head: {
+          yawRad: view === 'front' ? 0 : Math.PI / 2,
+          yawDeg: view === 'front' ? 0 : 90,
+          pitchRatio: 0,
+          view,
+          facingSign: -1,
+          jawOpen
+        }
+      });
+      return {
+        bones: projectStructuresToScreen(rig, 'bone', view),
+        muscles: projectStructuresToScreen(rig, 'muscle', view)
+      };
+    };
+
+    for (const view of ['front', 'left'] as const) {
+      const closed = runCase(view, 0);
+      const open = runCase(view, 0.85);
+
+      const getBounds = (
+        list: ReturnType<typeof projectStructuresToScreen>,
+        id: string
+      ) => {
+        const hit = list.find((s) => s.structure.id === id);
+        expect(hit).toBeDefined();
+        return hit!.bounds;
+      };
+
+      const craniumClosed = getBounds(closed.bones, 'b_cranium');
+      const craniumOpen = getBounds(open.bones, 'b_cranium');
+      expect(Math.abs(craniumOpen.minY - craniumClosed.minY)).toBeLessThan(0.5);
+
+      const maxillaClosed = getBounds(closed.bones, 'b_maxilla');
+      const maxillaOpen = getBounds(open.bones, 'b_maxilla');
+      expect(Math.abs(maxillaOpen.minY - maxillaClosed.minY)).toBeLessThan(0.5);
+
+      const jawClosed = getBounds(closed.bones, 'b_mandibula');
+      const jawOpenB = getBounds(open.bones, 'b_mandibula');
+      expect(jawOpenB.maxY).toBeGreaterThan(jawClosed.maxY + 4);
+
+      for (const muscleId of ['m_masseter', 'm_temporalis', 'm_orbicularis_oris']) {
+        const mClosed = getBounds(closed.muscles, muscleId);
+        const mOpen = getBounds(open.muscles, muscleId);
+        expect(mOpen.maxY - mOpen.minY).toBeGreaterThan(mClosed.maxY - mClosed.minY + 1);
+      }
+    }
+  });
 });

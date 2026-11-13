@@ -6,6 +6,11 @@ import {
   type StructureType
 } from '../data/anatomyData';
 import {
+  computeBodyYawAndSideScore,
+  computeHeadPose,
+  type OrientationResult
+} from './orientationDetector';
+import {
   MP_LANDMARK,
   type AnatomicalSide,
   type DetectedOrientation,
@@ -34,6 +39,14 @@ export interface SegmentBox {
   length: number; // pixel length from v = 0 to v = 1
   halfWidth: number; // pixel half-width corresponding to u = 1
   confident: boolean;
+  /** Normalized anterior/nose shift along axisU in [-1, 1] for 2.5D head/body yaw */
+  anteriorShiftU?: number;
+  /** Segment-specific cardinal orientation ('front' | 'back' | 'left' | 'right') */
+  segmentView?: DetectedOrientation;
+  /** Screen horizontal direction (+1 or -1) the anterior side faces in profile */
+  facingSign?: number;
+  /** Real-time jaw opening ratio in [0..1] (for 'head' segment) */
+  jawOpen?: number;
 }
 
 export interface RenderedStructureInstance {
@@ -58,6 +71,84 @@ export interface RenderedStructureInstance {
 }
 
 const MIN_CONFIDENCE = 0.45;
+
+/** Structures visible when viewing the body or head from a lateral ('left' | 'right') angle */
+const LATERAL_VISIBLE_IDS: ReadonlySet<string> = new Set([
+  // Head & Neck
+  'b_cranium',
+  'b_maxilla',
+  'b_mandibula',
+  'b_vertebrae_cervicales',
+  'm_frontalis',
+  'm_orbicularis_oculi',
+  'm_zygomaticus_major',
+  'm_temporalis',
+  'm_masseter',
+  'm_orbicularis_oris',
+  'm_sternocleidomastoideus',
+  'm_scaleni',
+  'm_splenius_capitis',
+  'm_levator_scapulae',
+  // Torso & Shoulder Girdle
+  'b_clavicula',
+  'b_costae_verae',
+  'b_costae_spuriae',
+  'b_scapula',
+  'b_vertebrae_thoracicae',
+  'b_vertebrae_lumbales',
+  'm_pectoralis_major_sternocostalis',
+  'm_serratus_anterior',
+  'm_rectus_abdominis',
+  'm_obliquus_externus_abdominis',
+  'm_trapezius_descendens',
+  'm_latissimus_dorsi',
+  'm_erector_iliocostalis',
+  // Pelvis
+  'b_os_ilium',
+  'b_os_sacrum',
+  'b_trochanter_major',
+  'm_gluteus_maximus',
+  'm_gluteus_medius',
+  'm_tensor_fasciae_latae',
+  // Upper Limb
+  'b_humerus',
+  'b_epicondylus_humeri',
+  'b_radius',
+  'b_ulna',
+  'b_ossa_carpi',
+  'b_ossa_metacarpi',
+  'b_phalanges_manus',
+  'm_deltoideus_clavicularis',
+  'm_deltoideus_acromialis',
+  'm_deltoideus_spinalis',
+  'm_biceps_caput_longum',
+  'm_triceps_caput_laterale',
+  'm_brachioradialis',
+  'm_extensor_carpi_radialis_longus',
+  // Lower Limb
+  'b_femur',
+  'b_patella',
+  'b_tibia',
+  'b_fibula',
+  'b_talus',
+  'b_calcaneus',
+  'b_ossa_tarsi_metatarsi',
+  'b_phalanges_pedis',
+  'm_rectus_femoris',
+  'm_vastus_lateralis',
+  'm_tractus_iliotibialis',
+  'm_biceps_femoris_longum',
+  'm_tibialis_anterior',
+  'm_fibularis_longus',
+  'm_gastrocnemius_laterale',
+  'm_soleus',
+  'm_tendo_calcaneus',
+  'm_aponeurosis_plantaris'
+]);
+
+function clamp(v: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, v));
+}
 
 export function computeFrameViewport(
   srcWidth: number,
@@ -139,6 +230,15 @@ function normalizeVec(dx: number, dy: number): ScreenPoint {
   return { x: dx / len, y: dy / len };
 }
 
+function perpTowardSign(axisV: ScreenPoint, desiredSignX: number): ScreenPoint {
+  const p1 = { x: axisV.y, y: -axisV.x };
+  const p2 = { x: -axisV.y, y: axisV.x };
+  if (Math.abs(p1.x) >= Math.abs(p2.x)) {
+    return p1.x * desiredSignX >= 0 ? p1 : p2;
+  }
+  return p2.x * desiredSignX >= 0 ? p2 : p1;
+}
+
 function makeSegmentFromEndpoints(
   key: string,
   segment: BodySegment,
@@ -189,13 +289,14 @@ function makeSegmentFromEndpoints(
 
 /**
  * Builds the 10-segment anatomical rig (16 segment boxes including bilateral limbs)
- * from the 33 MediaPipe landmarks, computing synthetic neck/clavicle/pelvic anchors
- * and filtering out unconfident segments for partial bodies.
+ * from the 33 MediaPipe landmarks, stabilizing sagittal torso/pelvis dimensions in
+ * side views and tracking independent head yaw & real-time jaw opening.
  */
 export function buildSegmentRig(
   landmarks: readonly PoseLandmark[],
   vp: FrameViewport,
-  mirrored: boolean
+  mirrored: boolean,
+  orientResult?: OrientationResult
 ): Map<string, SegmentBox> {
   const boxes = new Map<string, SegmentBox>();
 
@@ -208,8 +309,6 @@ export function buildSegmentRig(
   const reEarLm = landmarks[MP_LANDMARK.RIGHT_EAR];
   const leEyeLm = landmarks[MP_LANDMARK.LEFT_EYE];
   const reEyeLm = landmarks[MP_LANDMARK.RIGHT_EYE];
-  const mlLm = landmarks[MP_LANDMARK.MOUTH_LEFT];
-  const mrLm = landmarks[MP_LANDMARK.MOUTH_RIGHT];
 
   const ls = lsLm ? toScreen(lsLm, vp, mirrored) : { x: 0, y: 0 };
   const rs = rsLm ? toScreen(rsLm, vp, mirrored) : { x: 0, y: 0 };
@@ -221,21 +320,63 @@ export function buildSegmentRig(
 
   const shoulderMid = mid(ls, rs);
   const hipMid = mid(lh, rh);
-  const shoulderSpan = shouldersConf ? dist(ls, rs) : 120;
-  const hipSpan = hipsConf ? dist(lh, rh) : shoulderSpan * 0.72;
+  const rawShoulderSpan = shouldersConf ? dist(ls, rs) : 120;
+  const rawHipSpan = hipsConf ? dist(lh, rh) : rawShoulderSpan * 0.72;
+
+  const bodyYaw = orientResult
+    ? undefined
+    : computeBodyYawAndSideScore(landmarks);
+  const bodyView: DetectedOrientation = orientResult?.view ?? bodyYaw!.rawView;
+  const isLateralBody = bodyView === 'left' || bodyView === 'right';
+
+  // Coronal reference shoulder span prevents torso/pelvis collapse in side views
+  const torsoLenEst =
+    shouldersConf && hipsConf ? dist(shoulderMid, hipMid) : rawShoulderSpan * 1.48;
+  const coronalShoulderSpan = Math.max(
+    rawShoulderSpan,
+    hipsConf ? torsoLenEst * 0.56 : 0,
+    80
+  );
+  const shoulderSpan = coronalShoulderSpan;
+  const hipSpan = Math.max(rawHipSpan, coronalShoulderSpan * 0.68);
+
+  // Determine screen-space facing sign (+1 = facing +X, -1 = facing -X)
+  const nosePt = noseLm ? toScreen(noseLm, vp, mirrored) : null;
+  let bodyFacingSign = bodyView === 'left' ? 1 : bodyView === 'right' ? -1 : 1;
+  if (mirrored && (bodyView === 'left' || bodyView === 'right')) {
+    bodyFacingSign = -bodyFacingSign;
+  }
+  if (nosePt && shouldersConf && Math.abs(nosePt.x - shoulderMid.x) > 4) {
+    bodyFacingSign = Math.sign(nosePt.x - shoulderMid.x);
+  }
 
   // Determine whether anatomical left is currently toward +X in screen space
   let bodyLeftPointsPositiveX = !mirrored;
-  if (shouldersConf && Math.abs(ls.x - rs.x) > 4) {
+  if (shouldersConf && Math.abs(ls.x - rs.x) > coronalShoulderSpan * 0.28) {
     bodyLeftPointsPositiveX = ls.x > rs.x;
-  } else if (hipsConf && Math.abs(lh.x - rh.x) > 4) {
+  } else if (hipsConf && Math.abs(lh.x - rh.x) > hipSpan * 0.28) {
     bodyLeftPointsPositiveX = lh.x > rh.x;
   }
 
-  // Torso axis vectors
-  const torsoAxisU = shouldersConf
-    ? normalizeVec(ls.x - rs.x, ls.y - rs.y)
-    : { x: bodyLeftPointsPositiveX ? 1 : -1, y: 0 };
+  const isNarrowShoulderView =
+    isLateralBody || (shouldersConf && rawShoulderSpan < coronalShoulderSpan * 0.48);
+
+  // Torso axis vectors: lock orthogonal to spine when shoulders stack in side view
+  const rawTorsoAxisV =
+    shouldersConf && hipsConf
+      ? normalizeVec(hipMid.x - shoulderMid.x, hipMid.y - shoulderMid.y)
+      : { x: 0, y: 1 };
+  const torsoAxisU =
+    shouldersConf && !isNarrowShoulderView
+      ? normalizeVec(ls.x - rs.x, ls.y - rs.y)
+      : isNarrowShoulderView
+        ? perpTowardSign(rawTorsoAxisV, bodyFacingSign)
+        : { x: bodyLeftPointsPositiveX ? 1 : -1, y: 0 };
+
+  const sagittalTorsoHalfW = coronalShoulderSpan * 0.36;
+  const effectiveTorsoHalfW = isNarrowShoulderView
+    ? Math.max(rawShoulderSpan * 0.56, sagittalTorsoHalfW)
+    : rawShoulderSpan * 0.56;
 
   // 1. Torso segment (shoulderMid -> hipMid)
   if (shouldersConf && hipsConf) {
@@ -244,23 +385,23 @@ export function buildSegmentRig(
       y: shoulderMid.y - (hipMid.y - shoulderMid.y) * 0.06
     };
     const torsoBottom = lerpPt(shoulderMid, hipMid, 0.92);
-    boxes.set(
+    const torsoBox = makeSegmentFromEndpoints(
       'torso',
-      makeSegmentFromEndpoints(
-        'torso',
-        'torso',
-        'midline',
-        torsoTop,
-        torsoBottom,
-        shoulderSpan * 0.56,
-        bodyLeftPointsPositiveX,
-        true,
-        torsoAxisU
-      )
+      'torso',
+      'midline',
+      torsoTop,
+      torsoBottom,
+      effectiveTorsoHalfW,
+      bodyLeftPointsPositiveX,
+      true,
+      torsoAxisU
     );
+    torsoBox.segmentView = bodyView;
+    torsoBox.facingSign = bodyFacingSign;
+    boxes.set('torso', torsoBox);
   } else if (shouldersConf) {
     // Upper-body partial frame fallback: infer torso extent from shoulder width
-    const estHeight = shoulderSpan * 1.48;
+    const estHeight = coronalShoulderSpan * 1.48;
     const perpDown = bodyLeftPointsPositiveX
       ? { x: -torsoAxisU.y, y: torsoAxisU.x }
       : { x: torsoAxisU.y, y: -torsoAxisU.x };
@@ -272,29 +413,32 @@ export function buildSegmentRig(
       x: shoulderMid.x + perpDown.x * estHeight * 0.92,
       y: shoulderMid.y + perpDown.y * estHeight * 0.92
     };
-    boxes.set(
+    const torsoBox = makeSegmentFromEndpoints(
       'torso',
-      makeSegmentFromEndpoints(
-        'torso',
-        'torso',
-        'midline',
-        torsoTop,
-        torsoBottom,
-        shoulderSpan * 0.56,
-        bodyLeftPointsPositiveX,
-        true,
-        torsoAxisU
-      )
+      'torso',
+      'midline',
+      torsoTop,
+      torsoBottom,
+      effectiveTorsoHalfW,
+      bodyLeftPointsPositiveX,
+      true,
+      torsoAxisU
     );
+    torsoBox.segmentView = bodyView;
+    torsoBox.facingSign = bodyFacingSign;
+    boxes.set('torso', torsoBox);
   }
 
   // 2. Pelvis segment (slightly above hipMid -> trochanter/pubic base)
   if (hipsConf) {
-    const pelvisAxisU = normalizeVec(lh.x - rh.x, lh.y - rh.y);
-    const torsoRefLen = shouldersConf ? dist(shoulderMid, hipMid) : hipSpan * 1.9;
     const downDir = shouldersConf
       ? normalizeVec(hipMid.x - shoulderMid.x, hipMid.y - shoulderMid.y)
       : { x: 0, y: 1 };
+    const isNarrowHipView = isLateralBody || rawHipSpan < hipSpan * 0.45;
+    const pelvisAxisU = !isNarrowHipView
+      ? normalizeVec(lh.x - rh.x, lh.y - rh.y)
+      : perpTowardSign(downDir, bodyFacingSign);
+    const torsoRefLen = shouldersConf ? dist(shoulderMid, hipMid) : hipSpan * 1.9;
     const pelvisTop = {
       x: hipMid.x - downDir.x * torsoRefLen * 0.17,
       y: hipMid.y - downDir.y * torsoRefLen * 0.17
@@ -303,62 +447,68 @@ export function buildSegmentRig(
       x: hipMid.x + downDir.x * torsoRefLen * 0.2,
       y: hipMid.y + downDir.y * torsoRefLen * 0.2
     };
-    boxes.set(
+    const pelvisHalfW = isNarrowHipView
+      ? Math.max(rawHipSpan * 0.72, coronalShoulderSpan * 0.34)
+      : Math.max(rawHipSpan * 0.72, coronalShoulderSpan * 0.48);
+    const pelvisBox = makeSegmentFromEndpoints(
       'pelvis',
-      makeSegmentFromEndpoints(
-        'pelvis',
-        'pelvis',
-        'midline',
-        pelvisTop,
-        pelvisBottom,
-        Math.max(hipSpan * 0.72, shoulderSpan * 0.48),
-        bodyLeftPointsPositiveX,
-        true,
-        pelvisAxisU
-      )
+      'pelvis',
+      'midline',
+      pelvisTop,
+      pelvisBottom,
+      pelvisHalfW,
+      bodyLeftPointsPositiveX,
+      true,
+      pelvisAxisU
     );
+    pelvisBox.segmentView = bodyView;
+    pelvisBox.facingSign = bodyFacingSign;
+    boxes.set('pelvis', pelvisBox);
   }
 
-  // 3. Head & Neck segments
+  // 3. Head & Neck segments (decoupled from mouth landmarks so jaw movement never stretches skull)
   const headConf =
     isConfident(noseLm) ||
     isConfident(leEarLm, reEarLm) ||
     isConfident(leEyeLm, reEyeLm);
   if (headConf) {
     const earsConf = isConfident(leEarLm, reEarLm);
+    const leftEarOnly = !earsConf && isConfident(leEarLm);
+    const rightEarOnly = !earsConf && isConfident(reEarLm);
     const eyesConf = isConfident(leEyeLm, reEyeLm);
-    const mouthConf = isConfident(mlLm, mrLm);
 
     const leEarPt = leEarLm ? toScreen(leEarLm, vp, mirrored) : null;
     const reEarPt = reEarLm ? toScreen(reEarLm, vp, mirrored) : null;
     const leEyePt = leEyeLm ? toScreen(leEyeLm, vp, mirrored) : null;
     const reEyePt = reEyeLm ? toScreen(reEyeLm, vp, mirrored) : null;
-    const mlPt = mlLm ? toScreen(mlLm, vp, mirrored) : null;
-    const mrPt = mrLm ? toScreen(mrLm, vp, mirrored) : null;
-    const nosePt = noseLm ? toScreen(noseLm, vp, mirrored) : null;
 
-    const earMid = earsConf && leEarPt && reEarPt ? mid(leEarPt, reEarPt) : null;
+    const earMid = earsConf && leEarPt && reEarPt
+      ? mid(leEarPt, reEarPt)
+      : leftEarOnly && leEarPt
+        ? leEarPt
+        : rightEarOnly && reEarPt
+          ? reEarPt
+          : null;
     const eyeMid = eyesConf && leEyePt && reEyePt ? mid(leEyePt, reEyePt) : null;
-    const mouthMid = mouthConf && mlPt && mrPt ? mid(mlPt, mrPt) : null;
 
     const headRefCenter =
       nosePt && earMid
         ? mid(nosePt, earMid)
         : eyeMid ?? nosePt ?? earMid ?? shoulderMid;
 
-    // Multi-cue cranial width so slight head turns never collapse horizontal scale
+    // Coronal reference floor keeps cranial proportions stable during head turns
     const earWidthEst =
       earsConf && leEarPt && reEarPt ? dist(leEarPt, reEarPt) * 1.24 : 0;
     const eyeWidthEst =
       eyesConf && leEyePt && reEyePt ? dist(leEyePt, reEyePt) * 2.55 : 0;
-    const mouthWidthEst =
-      mouthConf && mlPt && mrPt ? dist(mlPt, mrPt) * 2.85 : 0;
-    const shoulderHeadWidthFloor = shouldersConf ? shoulderSpan * 0.44 : 0;
+    const noseEarDepthEst =
+      nosePt && earMid ? dist(nosePt, earMid) * 1.65 : 0;
+    const shoulderHeadWidthFloor = shouldersConf ? coronalShoulderSpan * 0.44 : 0;
 
     const cranialWidth = Math.max(
       earWidthEst,
       eyeWidthEst,
-      mouthWidthEst,
+      noseEarDepthEst,
       shoulderHeadWidthFloor,
       34
     );
@@ -370,81 +520,146 @@ export function buildSegmentRig(
         )
       : { x: 0, y: -1 };
     const faceUpAxis =
-      eyeMid && mouthMid
-        ? normalizeVec(eyeMid.x - mouthMid.x, eyeMid.y - mouthMid.y)
+      eyeMid && nosePt
+        ? normalizeVec(eyeMid.x - nosePt.x, eyeMid.y - nosePt.y)
         : shoulderHeadAxis;
     const upDir =
-      eyeMid && mouthMid && shouldersConf
+      eyeMid && nosePt && shouldersConf
         ? normalizeVec(
-            faceUpAxis.x * 0.75 + shoulderHeadAxis.x * 0.25,
-            faceUpAxis.y * 0.75 + shoulderHeadAxis.y * 0.25
+            faceUpAxis.x * 0.65 + shoulderHeadAxis.x * 0.35,
+            faceUpAxis.y * 0.65 + shoulderHeadAxis.y * 0.35
           )
-        : faceUpAxis;
+        : shoulderHeadAxis;
 
-    const eyeMouthHeightEst =
-      eyeMid && mouthMid ? dist(eyeMid, mouthMid) * 3.15 : 0;
+    // Strictly upper-cranium height cues (never mouth landmarks!)
+    const eyeNoseHeightEst =
+      eyeMid && nosePt ? dist(eyeMid, nosePt) * 5.2 : 0;
+    const earSpanHeightEst =
+      earsConf && leEarPt && reEarPt ? dist(leEarPt, reEarPt) * 1.48 : 0;
     const shoulderHeadHeightEst = shouldersConf
       ? dist(headRefCenter, shoulderMid) * 0.94
       : 0;
     const headHeight = Math.max(
       cranialWidth * 1.22,
-      eyeMouthHeightEst,
+      eyeNoseHeightEst,
+      earSpanHeightEst,
       shoulderHeadHeightEst,
       42
     );
 
-    // Face midpoint (v = 0.50) places eyes at ~0.44, nose at ~0.56, mouth at ~0.74
-    const faceAnchor =
-      eyeMid && mouthMid ? lerpPt(eyeMid, mouthMid, 0.2) : headRefCenter;
+    // Compute cranial pivot center (remains on skull vault even when head turns)
+    const upperFaceAnchor =
+      eyeMid && nosePt ? lerpPt(eyeMid, nosePt, 0.48) : headRefCenter;
+    const craniumCenter =
+      earMid && nosePt
+        ? lerpPt(earMid, upperFaceAnchor, earsConf ? 0.35 : 0.38)
+        : upperFaceAnchor;
+
+    const headPose =
+      orientResult?.head ??
+      computeHeadPose(
+        landmarks,
+        bodyView,
+        bodyYaw?.yawRad ?? 0,
+        null
+      );
+
+    const headView = headPose.view;
+    const isHeadProfile = headView === 'left' || headView === 'right';
+
+    // Determine screen-space nose facing direction for profile head
+    let headFacingSign = headPose.facingSign;
+    if (mirrored && !orientResult) {
+      headFacingSign = -headFacingSign;
+    }
+    if (nosePt && earMid && Math.abs(nosePt.x - earMid.x) > 4) {
+      headFacingSign = Math.sign(nosePt.x - earMid.x);
+    }
+
+    // Build headAxisU orthogonal to upDir
+    let candHeadU: ScreenPoint;
+    if (
+      !isHeadProfile &&
+      earsConf &&
+      leEarPt &&
+      reEarPt &&
+      dist(leEarPt, reEarPt) > cranialWidth * 0.35
+    ) {
+      candHeadU = normalizeVec(leEarPt.x - reEarPt.x, leEarPt.y - reEarPt.y);
+    } else if (
+      !isHeadProfile &&
+      eyesConf &&
+      leEyePt &&
+      reEyePt &&
+      dist(leEyePt, reEyePt) > cranialWidth * 0.16
+    ) {
+      candHeadU = normalizeVec(leEyePt.x - reEyePt.x, leEyePt.y - reEyePt.y);
+    } else if (isHeadProfile) {
+      // In lateral profile, +axisU points toward the anterior face (nose)
+      candHeadU = perpTowardSign({ x: -upDir.x, y: -upDir.y }, headFacingSign);
+    } else {
+      candHeadU = torsoAxisU;
+    }
+
+    // Enforce strict orthogonality against upDir
+    const dotUp = candHeadU.x * upDir.x + candHeadU.y * upDir.y;
+    const headAxisU = normalizeVec(
+      candHeadU.x - dotUp * upDir.x,
+      candHeadU.y - dotUp * upDir.y
+    );
+
+    // Normalized nose shift along headAxisU for 2.5D oblique projection
+    let anteriorShiftU = 0;
+    if (nosePt) {
+      const dxNose = nosePt.x - craniumCenter.x;
+      const dyNose = nosePt.y - craniumCenter.y;
+      const projNoseOnU = dxNose * headAxisU.x + dyNose * headAxisU.y;
+      anteriorShiftU = clamp(projNoseOnU / Math.max(12, cranialWidth * 0.36), -1, 1);
+    }
 
     const headTop = {
-      x: faceAnchor.x + upDir.x * headHeight * 0.5,
-      y: faceAnchor.y + upDir.y * headHeight * 0.5
+      x: craniumCenter.x + upDir.x * headHeight * 0.5,
+      y: craniumCenter.y + upDir.y * headHeight * 0.5
     };
     const chinPt = {
-      x: faceAnchor.x - upDir.x * headHeight * 0.5,
-      y: faceAnchor.y - upDir.y * headHeight * 0.5
+      x: craniumCenter.x - upDir.x * headHeight * 0.5,
+      y: craniumCenter.y - upDir.y * headHeight * 0.5
     };
 
-    const headAxisU =
-      earsConf && leEarPt && reEarPt
-        ? normalizeVec(leEarPt.x - reEarPt.x, leEarPt.y - reEarPt.y)
-        : eyesConf && leEyePt && reEyePt
-          ? normalizeVec(leEyePt.x - reEyePt.x, leEyePt.y - reEyePt.y)
-          : torsoAxisU;
-
-    boxes.set(
+    const headBox = makeSegmentFromEndpoints(
       'head',
-      makeSegmentFromEndpoints(
-        'head',
-        'head',
-        'midline',
-        headTop,
-        chinPt,
-        cranialWidth * 0.52,
-        bodyLeftPointsPositiveX,
-        true,
-        headAxisU
-      )
+      'head',
+      'midline',
+      headTop,
+      chinPt,
+      cranialWidth * 0.52,
+      bodyLeftPointsPositiveX,
+      true,
+      headAxisU
     );
+    headBox.anteriorShiftU = anteriorShiftU;
+    headBox.segmentView = headView;
+    headBox.facingSign = headFacingSign;
+    headBox.jawOpen = headPose.jawOpen;
+    boxes.set('head', headBox);
 
     if (shouldersConf) {
       const neckTop = lerpPt(headTop, chinPt, 0.82);
       const neckBottom = lerpPt(shoulderMid, hipMid, hipsConf ? 0.05 : 0.0);
-      boxes.set(
+      const neckBox = makeSegmentFromEndpoints(
         'neck',
-        makeSegmentFromEndpoints(
-          'neck',
-          'neck',
-          'midline',
-          neckTop,
-          neckBottom,
-          Math.max(cranialWidth * 0.36, shoulderSpan * 0.19),
-          bodyLeftPointsPositiveX,
-          true,
-          torsoAxisU
-        )
+        'neck',
+        'midline',
+        neckTop,
+        neckBottom,
+        Math.max(cranialWidth * 0.36, coronalShoulderSpan * 0.19),
+        bodyLeftPointsPositiveX,
+        true,
+        isHeadProfile ? headAxisU : torsoAxisU
       );
+      neckBox.segmentView = isHeadProfile ? headView : bodyView;
+      neckBox.facingSign = isHeadProfile ? headFacingSign : bodyFacingSign;
+      boxes.set('neck', neckBox);
     }
   }
 
@@ -649,6 +864,91 @@ export function buildSegmentRig(
   return boxes;
 }
 
+/**
+ * Applies real-time kinematic TMJ jaw articulation to head bone and muscle UV coordinates.
+ */
+function applyJawArticulation(
+  uv: PointUV,
+  structureId: string,
+  jawOpen: number,
+  isLateral: boolean
+): PointUV {
+  if (jawOpen <= 0.01) return uv;
+  const [u, v] = uv;
+
+  if (structureId === 'b_mandibula') {
+    if (isLateral) {
+      // Pivot around lateral TMJ condyle (-0.02, 0.53) downward & posteriorly
+      const u0 = -0.02;
+      const v0 = 0.53;
+      const du = u - u0;
+      const dv = v - v0;
+      if (dv < 0.01 && Math.abs(du) < 0.1) return uv;
+      const theta = jawOpen * 0.42; // up to ~24 deg mandibular depression
+      const cos = Math.cos(theta);
+      const sin = Math.sin(theta);
+      return [u0 + du * cos - dv * sin, v0 + du * sin + dv * cos];
+    } else {
+      // Front/oblique: TMJ condyles (v <= 0.55) stay anchored, mandibular body drops
+      if (v <= 0.55) return uv;
+      const t = clamp((v - 0.54) / 0.30, 0, 1);
+      return [u * (1 - jawOpen * 0.045 * t), v + jawOpen * 0.145 * t];
+    }
+  }
+
+  if (structureId === 'm_masseter') {
+    if (v <= 0.53) return uv;
+    const t = clamp((v - 0.52) / 0.34, 0, 1);
+    // Elongate downward while gently tapering belly width
+    const centerU = isLateral ? 0.22 : 0.69;
+    const uPulled = centerU + (u - centerU) * (1 - jawOpen * 0.13 * t);
+    return [uPulled, v + jawOpen * 0.135 * t];
+  }
+
+  if (structureId === 'm_temporalis') {
+    if (v <= 0.42) return uv;
+    const t = clamp((v - 0.42) / 0.20, 0, 1);
+    return [u, v + jawOpen * 0.075 * t];
+  }
+
+  if (structureId === 'm_orbicularis_oris') {
+    const dv = v - 0.75;
+    if (dv < 0) {
+      // Upper lip slightly lifts/tracks maxilla
+      return [u, v - jawOpen * 0.012];
+    }
+    // Lower lip drops with mandible, opening oral ring & inner cavity
+    return [u, v + jawOpen * (0.045 + Math.min(0.11, dv * 0.72))];
+  }
+
+  if (structureId === 'm_zygomaticus_major') {
+    if (v <= 0.55) return uv;
+    const t = clamp((v - 0.50) / 0.24, 0, 1);
+    return [u, v + jawOpen * 0.075 * t];
+  }
+
+  return uv;
+}
+
+function transformHeadUV(
+  uv: PointUV,
+  uSign: number,
+  coronalDepthW: number,
+  anteriorShiftU: number,
+  isLateralGeometry: boolean
+): PointUV {
+  if (isLateralGeometry) {
+    // Lateral profile geometry already uses +u = anterior, -u = posterior
+    return uv;
+  }
+  if (Math.abs(anteriorShiftU) <= 0.04) {
+    return [uv[0] * uSign, uv[1]];
+  }
+  const s = clamp(anteriorShiftU, -0.82, 0.82);
+  const c = Math.sqrt(Math.max(0.28, 1 - s * s));
+  return [uv[0] * uSign * c + coronalDepthW * s, uv[1]];
+}
+
 function projectPoint(
   uv: PointUV,
   box: SegmentBox,
@@ -662,9 +962,20 @@ function projectPoint(
   };
 }
 
+function isStructureVisibleInView(
+  structure: AnatomyStructure,
+  segView: DetectedOrientation
+): boolean {
+  if (segView === 'left' || segView === 'right') {
+    return LATERAL_VISIBLE_IDS.has(structure.id);
+  }
+  return structure.view === 'both' || structure.view === segView;
+}
+
 function getBoxKeysForStructure(
   structure: AnatomyStructure,
-  boxes: Map<string, SegmentBox>
+  boxes: Map<string, SegmentBox>,
+  globalView: DetectedOrientation
 ): { key: string; side: AnatomicalSide; uSign: number }[] {
   if (
     structure.segment === 'upper_arm' ||
@@ -676,6 +987,10 @@ function getBoxKeysForStructure(
   ) {
     const result: { key: string; side: AnatomicalSide; uSign: number }[] = [];
     for (const side of ['left', 'right'] as const) {
+      // Near-side occlusion culling when body is viewed from left/right profile
+      if ((globalView === 'left' || globalView === 'right') && side !== globalView) {
+        continue;
+      }
       const key = `${structure.segment}:${side}`;
       if (boxes.has(key)) {
         result.push({ key, side, uSign: 1 });
@@ -685,10 +1000,25 @@ function getBoxKeysForStructure(
   }
 
   // Axial / girdle segments (`head`, `neck`, `torso`, `pelvis`)
-  if (!boxes.has(structure.segment)) return [];
+  const box = boxes.get(structure.segment);
+  if (!box) return [];
+  const segView = box.segmentView ?? globalView;
+
   if (structure.sidedness === 'midline') {
     return [{ key: structure.segment, side: 'midline', uSign: 1 }];
   }
+
+  if (segView === 'left' || segView === 'right') {
+    // Only project near-side bilateral structure onto axial segment in lateral profile
+    return [
+      {
+        key: structure.segment,
+        side: segView,
+        uSign: segView === 'left' ? 1 : -1
+      }
+    ];
+  }
+
   // Bilateral structures placed on an axial box:
   // positive uSign -> +axisU (anatomical left), negative uSign -> -axisU (anatomical right)
   return [
@@ -700,15 +1030,16 @@ function getBoxKeysForStructure(
 function projectPolyList(
   polys: readonly (readonly PointUV[])[] | undefined,
   box: SegmentBox,
-  uSign: number
+  uSign: number,
+  mapUV: (uv: PointUV) => PointUV
 ): ScreenPoint[][] {
   if (!polys || polys.length === 0) return [];
-  return polys.map((poly) => poly.map((uv) => projectPoint(uv, box, uSign)));
+  return polys.map((poly) => poly.map((uv) => projectPoint(mapUV(uv), box, uSign)));
 }
 
 /**
  * Generates all transformed, screen-space anatomical structure instances
- * for the given layer ('bone' | 'muscle') and view ('front' | 'back').
+ * for the given layer ('bone' | 'muscle') and view ('front' | 'back' | 'left' | 'right').
  */
 export function projectStructuresToScreen(
   boxes: Map<string, SegmentBox>,
@@ -719,17 +1050,47 @@ export function projectStructuresToScreen(
 
   for (const structure of ANATOMY_STRUCTURES) {
     if (structure.type !== layer) continue;
-    if (structure.view !== 'both' && structure.view !== view) continue;
 
     const art = ANATOMY_ARTWORK_REGISTRY.get(structure.artworkRef);
     if (!art) continue;
 
-    const targets = getBoxKeysForStructure(structure, boxes);
+    const targets = getBoxKeysForStructure(structure, boxes, view);
     for (const target of targets) {
       const box = boxes.get(target.key);
       if (!box || !box.confident) continue;
 
-      const anchor = projectPoint(art.anchor, box, target.uSign);
+      const effectiveView: DetectedOrientation =
+        box.segment === 'head' || box.segment === 'neck'
+          ? box.segmentView ?? view
+          : view;
+
+      if (!isStructureVisibleInView(structure, effectiveView)) continue;
+
+      const isLateralSeg = effectiveView === 'left' || effectiveView === 'right';
+      const useLateralArt = Boolean(isLateralSeg && art.lateralGeometry);
+      const activeArt = useLateralArt ? art.lateralGeometry! : art;
+
+      // When using lateralGeometry, +u is always anterior (+1 along box.axisU in lateral setup)
+      const projUSign = useLateralArt ? 1 : box.segment === 'head' ? 1 : target.uSign;
+      const jawOpen = box.segment === 'head' ? box.jawOpen ?? 0 : 0;
+      const anteriorShiftU = box.segment === 'head' ? box.anteriorShiftU ?? 0 : 0;
+      const coronalDepthW = art.coronalDepthW ?? 0.2;
+
+      const mapUV = (uv: PointUV, depthOverride?: number): PointUV => {
+        const articulated = applyJawArticulation(uv, structure.id, jawOpen, useLateralArt);
+        if (box.segment === 'head') {
+          return transformHeadUV(
+            articulated,
+            target.uSign,
+            depthOverride ?? coronalDepthW,
+            anteriorShiftU,
+            useLateralArt
+          );
+        }
+        return articulated;
+      };
+
+      const anchor = projectPoint(mapUV(activeArt.anchor), box, projUSign);
       const contours: ScreenPoint[][] = [];
       let minX = Infinity;
       let minY = Infinity;
@@ -738,12 +1099,12 @@ export function projectStructuresToScreen(
       let minV = 1;
       let maxV = 0;
 
-      for (const contour of art.contours) {
+      for (const contour of activeArt.contours) {
         const pts: ScreenPoint[] = [];
         for (const uv of contour) {
           if (uv[1] < minV) minV = uv[1];
           if (uv[1] > maxV) maxV = uv[1];
-          const p = projectPoint(uv, box, target.uSign);
+          const p = projectPoint(mapUV(uv), box, projUSign);
           pts.push(p);
           if (p.x < minX) minX = p.x;
           if (p.y < minY) minY = p.y;
@@ -753,24 +1114,31 @@ export function projectStructuresToScreen(
         contours.push(pts);
       }
 
-      const cutouts = projectPolyList(art.cutouts, box, target.uSign);
-      const trabecularZones = projectPolyList(art.trabecularZones, box, target.uSign);
-      const cartilageZones = projectPolyList(art.cartilageZones, box, target.uSign);
-      const detailPaths = projectPolyList(art.detailPaths, box, target.uSign);
+      // Cranium facial cutouts (orbits, nasal cavity) sit on anterior facial arc (w = 0.56)
+      const cutoutDepthOverride =
+        !useLateralArt && structure.id === 'b_cranium' ? 0.56 : undefined;
+      const cutouts = projectPolyList(activeArt.cutouts, box, projUSign, (uv) =>
+        mapUV(uv, cutoutDepthOverride)
+      );
+      const trabecularZones = projectPolyList(activeArt.trabecularZones, box, projUSign, mapUV);
+      const cartilageZones = projectPolyList(activeArt.cartilageZones, box, projUSign, mapUV);
+      const detailPaths = projectPolyList(activeArt.detailPaths, box, projUSign, mapUV);
 
       // Compute fiber angle in screen space from local segment basis
-      const radLocal = (art.fiberAngleDeg * Math.PI) / 180;
-      const localDu = Math.cos(radLocal) * target.uSign;
+      const fiberAngleDeg =
+        (useLateralArt ? art.lateralGeometry?.fiberAngleDeg : undefined) ?? art.fiberAngleDeg;
+      const radLocal = (fiberAngleDeg * Math.PI) / 180;
+      const localDu = Math.cos(radLocal) * projUSign;
       const localDv = Math.sin(radLocal);
       const worldDx = box.axisU.x * localDu + box.axisV.x * localDv;
       const worldDy = box.axisU.y * localDu + box.axisV.y * localDv;
       const fiberScreenAngleRad = Math.atan2(worldDy, worldDx);
 
-      const proximalPt = projectPoint([art.anchor[0], minV], box, target.uSign);
-      const distalPt = projectPoint([art.anchor[0], maxV], box, target.uSign);
+      const proximalPt = projectPoint(mapUV([activeArt.anchor[0], minV]), box, projUSign);
+      const distalPt = projectPoint(mapUV([activeArt.anchor[0], maxV]), box, projUSign);
       const orientedAxisU: ScreenPoint = {
-        x: box.axisU.x * target.uSign,
-        y: box.axisU.y * target.uSign
+        x: box.axisU.x * projUSign,
+        y: box.axisU.y * projUSign
       };
 
       instances.push({

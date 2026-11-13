@@ -16,12 +16,17 @@ import {
 import { renderAnatomyFrame, type DrawableMedia } from './render/xrayRenderer';
 import {
   DEV_SAMPLES,
+  getDevSampleJawOpen,
   getDevSampleLandmarks,
   type DevSampleId
 } from './vision/devFixtures';
 import { LandmarkSmoother } from './vision/oneEuroFilter';
 import { OrientationDetector } from './vision/orientationDetector';
-import { PoseEngine, type PoseModelTier } from './vision/poseEngine';
+import {
+  estimateJawOpenFromPoseAndROI,
+  PoseEngine,
+  type PoseModelTier
+} from './vision/poseEngine';
 import {
   buildSegmentRig,
   computeFrameViewport,
@@ -31,6 +36,7 @@ import {
 } from './vision/segmentRig';
 import type {
   DetectedOrientation,
+  FaceTrackingResult,
   PoseLandmark,
   ViewModeOverride
 } from './vision/types';
@@ -58,6 +64,7 @@ function parseInitialParams(): {
   const validDev: DevSampleId | null =
     devParam === 'anterior' ||
     devParam === 'posterior' ||
+    devParam === 'lateral' ||
     devParam === 'upper_body' ||
     devParam === 'motion_loop'
       ? devParam
@@ -126,11 +133,14 @@ export function App() {
   const uploadedIsVideoRef = useRef(false);
   const sampleImgRef = useRef<HTMLImageElement | null>(null);
   const motionCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const roiCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const frozenCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const frozenLandmarksRef = useRef<PoseLandmark[] | null>(null);
   const lastRawLandmarksRef = useRef<PoseLandmark[] | null>(null);
   const lastMediaRef = useRef<DrawableMedia | null>(null);
   const lastInstancesRef = useRef<RenderedStructureInstance[]>([]);
+  const lastFaceResultRef = useRef<FaceTrackingResult | null>(null);
+  const faceFrameCounterRef = useRef<number>(0);
 
   const poseEngineRef = useRef<PoseEngine>(new PoseEngine());
   const smootherRef = useRef<LandmarkSmoother>(new LandmarkSmoother(33, 1.15, 0.045));
@@ -254,7 +264,11 @@ export function App() {
     const meta = DEV_SAMPLES.find((s) => s.id === activeDevSample);
     smootherRef.current.reset();
     orientationRef.current.reset(
-      activeDevSample === 'posterior' ? 'back' : 'front'
+      activeDevSample === 'posterior'
+        ? 'back'
+        : activeDevSample === 'lateral'
+          ? 'left'
+          : 'front'
     );
     setPinnedInstanceId(null);
     setIsFrozen(false);
@@ -381,7 +395,15 @@ export function App() {
 
   const handleCycleViewOverride = useCallback(() => {
     setViewOverride((prev) =>
-      prev === 'auto' ? 'front' : prev === 'front' ? 'back' : 'auto'
+      prev === 'auto'
+        ? 'front'
+        : prev === 'front'
+          ? 'back'
+          : prev === 'back'
+            ? 'left'
+            : prev === 'left'
+              ? 'right'
+              : 'auto'
     );
   }, []);
 
@@ -407,144 +429,256 @@ export function App() {
     setLiveAnnouncement(getUIText(uiLang).lensResetHint);
   }, [uiLang]);
 
-  // Helper to draw studio-lit, anatomically contoured motion figure onto offscreen canvas for motion_loop mode
-  const getMotionCanvas = useCallback((nowMs: number): HTMLCanvasElement => {
-    if (!motionCanvasRef.current) {
-      motionCanvasRef.current = document.createElement('canvas');
-      motionCanvasRef.current.width = 720;
-      motionCanvasRef.current.height = 1080;
-    }
-    const mc = motionCanvasRef.current;
-    const mctx = mc.getContext('2d')!;
-    const lms = getDevSampleLandmarks('motion_loop', nowMs);
+  // Helper to draw studio-lit, anatomically contoured procedural figure onto offscreen canvas for motion_loop & lateral modes
+  const getProceduralCanvas = useCallback(
+    (sampleId: 'motion_loop' | 'lateral', nowMs: number): HTMLCanvasElement => {
+      if (!motionCanvasRef.current) {
+        motionCanvasRef.current = document.createElement('canvas');
+        motionCanvasRef.current.width = 720;
+        motionCanvasRef.current.height = 1080;
+      }
+      const mc = motionCanvasRef.current;
+      const mctx = mc.getContext('2d')!;
+      const lms = getDevSampleLandmarks(sampleId, nowMs);
+      const isLateral = sampleId === 'lateral';
 
-    const grad = mctx.createRadialGradient(360, 380, 60, 360, 540, 700);
-    grad.addColorStop(0, '#223149');
-    grad.addColorStop(0.55, '#111827');
-    grad.addColorStop(1, '#060a12');
-    mctx.fillStyle = grad;
-    mctx.fillRect(0, 0, 720, 1080);
+      const grad = mctx.createRadialGradient(360, 380, 60, 360, 540, 700);
+      grad.addColorStop(0, '#223149');
+      grad.addColorStop(0.55, '#111827');
+      grad.addColorStop(1, '#060a12');
+      mctx.fillStyle = grad;
+      mctx.fillRect(0, 0, 720, 1080);
 
-    const pt = (idx: number) => ({ x: lms[idx].x * 720, y: lms[idx].y * 1080 });
-    const drawTaperedLimb = (
-      aIdx: number,
-      bIdx: number,
-      wStart: number,
-      wEnd: number
-    ) => {
-      const a = pt(aIdx);
-      const b = pt(bIdx);
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const len = Math.max(1, Math.hypot(dx, dy));
-      const nx = -dy / len;
-      const ny = dx / len;
-      const mx = (a.x + b.x) * 0.5;
-      const my = (a.y + b.y) * 0.5;
-      const wMid = (wStart + wEnd) * 0.56;
+      const pt = (idx: number) => ({ x: lms[idx].x * 720, y: lms[idx].y * 1080 });
+      const drawTaperedLimb = (
+        aIdx: number,
+        bIdx: number,
+        wStart: number,
+        wEnd: number
+      ) => {
+        const a = pt(aIdx);
+        const b = pt(bIdx);
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const len = Math.max(1, Math.hypot(dx, dy));
+        const nx = -dy / len;
+        const ny = dx / len;
+        const mx = (a.x + b.x) * 0.5;
+        const my = (a.y + b.y) * 0.5;
+        const wMid = (wStart + wEnd) * 0.56;
 
-      const lGrad = mctx.createLinearGradient(
-        mx - nx * wMid,
-        my - ny * wMid,
-        mx + nx * wMid,
-        my + ny * wMid
-      );
-      lGrad.addColorStop(0, '#98674b');
-      lGrad.addColorStop(0.42, '#e1ac8b');
-      lGrad.addColorStop(1, '#98674b');
+        const lGrad = mctx.createLinearGradient(
+          mx - nx * wMid,
+          my - ny * wMid,
+          mx + nx * wMid,
+          my + ny * wMid
+        );
+        lGrad.addColorStop(0, '#98674b');
+        lGrad.addColorStop(0.42, '#e1ac8b');
+        lGrad.addColorStop(1, '#98674b');
 
-      mctx.fillStyle = lGrad;
+        mctx.fillStyle = lGrad;
+        mctx.beginPath();
+        mctx.moveTo(a.x - nx * wStart, a.y - ny * wStart);
+        mctx.quadraticCurveTo(mx - nx * wMid, my - ny * wMid, b.x - nx * wEnd, b.y - ny * wEnd);
+        mctx.arc(b.x, b.y, wEnd, Math.atan2(-ny, -nx), Math.atan2(ny, nx));
+        mctx.quadraticCurveTo(mx + nx * wMid, my + ny * wMid, a.x + nx * wStart, a.y + ny * wStart);
+        mctx.arc(a.x, a.y, wStart, Math.atan2(ny, nx), Math.atan2(-ny, -nx));
+        mctx.closePath();
+        mctx.fill();
+      };
+
+      const ls = pt(11);
+      const rs = pt(12);
+      const lh = pt(23);
+      const rh = pt(24);
+      const nose = pt(0);
+      const shoulderMid = { x: (ls.x + rs.x) * 0.5, y: (ls.y + rs.y) * 0.5 };
+      const hipMid = { x: (lh.x + rh.x) * 0.5, y: (lh.y + rh.y) * 0.5 };
+      const torsoHeight = Math.max(80, hipMid.y - shoulderMid.y);
+
+      // Studio floor shadow
+      mctx.fillStyle = 'rgba(0, 0, 0, 0.42)';
       mctx.beginPath();
-      mctx.moveTo(a.x - nx * wStart, a.y - ny * wStart);
-      mctx.quadraticCurveTo(mx - nx * wMid, my - ny * wMid, b.x - nx * wEnd, b.y - ny * wEnd);
-      mctx.arc(b.x, b.y, wEnd, Math.atan2(-ny, -nx), Math.atan2(ny, nx));
-      mctx.quadraticCurveTo(mx + nx * wMid, my + ny * wMid, a.x + nx * wStart, a.y + ny * wStart);
-      mctx.arc(a.x, a.y, wStart, Math.atan2(ny, nx), Math.atan2(-ny, -nx));
+      mctx.ellipse(shoulderMid.x, 1015, isLateral ? 130 : 200, 24, 0, 0, Math.PI * 2);
+      mctx.fill();
+
+      if (isLateral) {
+        // Facing left in profile
+        const torsoHalfDepth = torsoHeight * 0.25;
+        const torsoGrad = mctx.createLinearGradient(
+          shoulderMid.x - torsoHalfDepth,
+          shoulderMid.y,
+          shoulderMid.x + torsoHalfDepth,
+          shoulderMid.y
+        );
+        torsoGrad.addColorStop(0, '#e7b493');
+        torsoGrad.addColorStop(0.55, '#c48c6b');
+        torsoGrad.addColorStop(1, '#8d5d42');
+
+        // Neck column
+        mctx.fillStyle = torsoGrad;
+        mctx.beginPath();
+        mctx.moveTo(nose.x + 8, nose.y + 38);
+        mctx.lineTo(nose.x + 48, nose.y + 36);
+        mctx.lineTo(shoulderMid.x + 34, shoulderMid.y);
+        mctx.lineTo(shoulderMid.x - 24, shoulderMid.y);
+        mctx.closePath();
+        mctx.fill();
+
+        // Far-side limbs first
+        drawTaperedLimb(24, 26, 30, 22);
+        drawTaperedLimb(26, 28, 21, 14);
+        drawTaperedLimb(30, 32, 15, 16);
+        drawTaperedLimb(12, 14, 22, 16);
+        drawTaperedLimb(14, 16, 15, 11);
+        drawTaperedLimb(16, 20, 12, 10);
+
+        // Sagittal Torso silhouette (chest anterior, dorsal curvature posterior)
+        mctx.fillStyle = torsoGrad;
+        mctx.beginPath();
+        mctx.moveTo(shoulderMid.x - torsoHalfDepth * 0.85, shoulderMid.y + 6);
+        mctx.quadraticCurveTo(
+          shoulderMid.x - torsoHalfDepth * 1.15,
+          (shoulderMid.y + hipMid.y) * 0.45,
+          hipMid.x - torsoHalfDepth * 0.72,
+          hipMid.y + 10
+        );
+        mctx.lineTo(hipMid.x + torsoHalfDepth * 0.88, hipMid.y + 10);
+        mctx.quadraticCurveTo(
+          shoulderMid.x + torsoHalfDepth * 1.05,
+          (shoulderMid.y + hipMid.y) * 0.48,
+          shoulderMid.x + torsoHalfDepth * 0.82,
+          shoulderMid.y - 4
+        );
+        mctx.closePath();
+        mctx.fill();
+
+        // Near-side leg & compression shorts
+        drawTaperedLimb(23, 25, 32, 24);
+        drawTaperedLimb(25, 27, 23, 15);
+        drawTaperedLimb(29, 31, 16, 17);
+
+        mctx.fillStyle = '#1e293b';
+        mctx.beginPath();
+        mctx.ellipse(hipMid.x + 4, hipMid.y + 16, torsoHalfDepth * 0.84, 52, 0, 0, Math.PI * 2);
+        mctx.fill();
+
+        // Near-side arm
+        drawTaperedLimb(11, 13, 24, 18);
+        drawTaperedLimb(13, 15, 17, 12);
+        drawTaperedLimb(15, 19, 13, 11);
+
+        // Profile Head & Hair
+        const headCx = nose.x + 34;
+        const headGrad = mctx.createRadialGradient(headCx - 16, nose.y - 10, 8, headCx, nose.y, 58);
+        headGrad.addColorStop(0, '#ebba9a');
+        headGrad.addColorStop(1, '#9a684c');
+        mctx.fillStyle = headGrad;
+        mctx.beginPath();
+        mctx.ellipse(headCx, nose.y - 2, 48, 54, 0, 0, Math.PI * 2);
+        mctx.fill();
+
+        mctx.fillStyle = '#1c1816';
+        mctx.beginPath();
+        mctx.ellipse(headCx + 8, nose.y - 22, 42, 34, -0.15, Math.PI * 0.85, Math.PI * 2.15);
+        mctx.fill();
+
+        return mc;
+      }
+
+      // Neck & trapezius slope
+      const torsoGrad = mctx.createLinearGradient(rs.x, shoulderMid.y, ls.x, shoulderMid.y);
+      torsoGrad.addColorStop(0, '#9e6d51');
+      torsoGrad.addColorStop(0.5, '#e7b493');
+      torsoGrad.addColorStop(1, '#9e6d51');
+      mctx.fillStyle = torsoGrad;
+      mctx.beginPath();
+      mctx.moveTo(nose.x - 24, nose.y + 42);
+      mctx.lineTo(nose.x + 24, nose.y + 42);
+      mctx.quadraticCurveTo(nose.x + 34, ls.y - 16, ls.x + 4, ls.y);
+      mctx.lineTo(rs.x - 4, rs.y);
+      mctx.quadraticCurveTo(nose.x - 34, rs.y - 16, nose.x - 24, nose.y + 42);
       mctx.closePath();
       mctx.fill();
-    };
 
-    const ls = pt(11);
-    const rs = pt(12);
-    const lh = pt(23);
-    const rh = pt(24);
-    const nose = pt(0);
-    const shoulderMid = { x: (ls.x + rs.x) * 0.5, y: (ls.y + rs.y) * 0.5 };
+      // Sculpted Torso
+      mctx.fillStyle = torsoGrad;
+      mctx.beginPath();
+      mctx.moveTo(rs.x - 6, rs.y - 4);
+      mctx.quadraticCurveTo(shoulderMid.x, shoulderMid.y - 16, ls.x + 6, ls.y - 4);
+      mctx.quadraticCurveTo(ls.x - 6, (ls.y + lh.y) * 0.5, lh.x + 6, lh.y + 12);
+      mctx.lineTo(rh.x - 6, rh.y + 12);
+      mctx.quadraticCurveTo(rs.x + 6, (rs.y + rh.y) * 0.5, rs.x - 6, rs.y - 4);
+      mctx.closePath();
+      mctx.fill();
 
-    // Studio floor shadow
-    mctx.fillStyle = 'rgba(0, 0, 0, 0.42)';
-    mctx.beginPath();
-    mctx.ellipse(shoulderMid.x, 1015, 200, 24, 0, 0, Math.PI * 2);
-    mctx.fill();
+      // Limbs (Arms + Hands, Legs + Feet)
+      drawTaperedLimb(11, 13, 24, 18);
+      drawTaperedLimb(13, 15, 17, 12);
+      drawTaperedLimb(15, 19, 13, 11);
+      drawTaperedLimb(12, 14, 24, 18);
+      drawTaperedLimb(14, 16, 17, 12);
+      drawTaperedLimb(16, 20, 13, 11);
 
-    // Neck & trapezius slope
-    const torsoGrad = mctx.createLinearGradient(rs.x, shoulderMid.y, ls.x, shoulderMid.y);
-    torsoGrad.addColorStop(0, '#9e6d51');
-    torsoGrad.addColorStop(0.5, '#e7b493');
-    torsoGrad.addColorStop(1, '#9e6d51');
-    mctx.fillStyle = torsoGrad;
-    mctx.beginPath();
-    mctx.moveTo(nose.x - 24, nose.y + 42);
-    mctx.lineTo(nose.x + 24, nose.y + 42);
-    mctx.quadraticCurveTo(nose.x + 34, ls.y - 16, ls.x + 4, ls.y);
-    mctx.lineTo(rs.x - 4, rs.y);
-    mctx.quadraticCurveTo(nose.x - 34, rs.y - 16, nose.x - 24, nose.y + 42);
-    mctx.closePath();
-    mctx.fill();
+      drawTaperedLimb(23, 25, 32, 24);
+      drawTaperedLimb(25, 27, 23, 15);
+      drawTaperedLimb(29, 31, 16, 17);
+      drawTaperedLimb(24, 26, 32, 24);
+      drawTaperedLimb(26, 28, 23, 15);
+      drawTaperedLimb(30, 32, 16, 17);
 
-    // Sculpted Torso
-    mctx.fillStyle = torsoGrad;
-    mctx.beginPath();
-    mctx.moveTo(rs.x - 6, rs.y - 4);
-    mctx.quadraticCurveTo(shoulderMid.x, shoulderMid.y - 16, ls.x + 6, ls.y - 4);
-    mctx.quadraticCurveTo(ls.x - 6, (ls.y + lh.y) * 0.5, lh.x + 6, lh.y + 12);
-    mctx.lineTo(rh.x - 6, rh.y + 12);
-    mctx.quadraticCurveTo(rs.x + 6, (rs.y + rh.y) * 0.5, rs.x - 6, rs.y - 4);
-    mctx.closePath();
-    mctx.fill();
+      // Athletic compression shorts
+      mctx.fillStyle = '#1e293b';
+      mctx.beginPath();
+      mctx.moveTo(rh.x - 16, rh.y - 34);
+      mctx.lineTo(lh.x + 16, lh.y - 34);
+      mctx.lineTo(lh.x + 26, lh.y + 66);
+      mctx.lineTo((lh.x + rh.x) * 0.5 + 4, lh.y + 24);
+      mctx.lineTo(rh.x - 26, rh.y + 66);
+      mctx.closePath();
+      mctx.fill();
 
-    // Limbs (Arms + Hands, Legs + Feet)
-    drawTaperedLimb(11, 13, 24, 18);
-    drawTaperedLimb(13, 15, 17, 12);
-    drawTaperedLimb(15, 19, 13, 11);
-    drawTaperedLimb(12, 14, 24, 18);
-    drawTaperedLimb(14, 16, 17, 12);
-    drawTaperedLimb(16, 20, 13, 11);
+      // Head & Hair
+      const headGrad = mctx.createRadialGradient(nose.x - 6, nose.y - 10, 8, nose.x, nose.y, 58);
+      headGrad.addColorStop(0, '#ebba9a');
+      headGrad.addColorStop(1, '#9a684c');
+      mctx.fillStyle = headGrad;
+      mctx.beginPath();
+      mctx.ellipse(nose.x, nose.y, 44, 54, 0, 0, Math.PI * 2);
+      mctx.fill();
 
-    drawTaperedLimb(23, 25, 32, 24);
-    drawTaperedLimb(25, 27, 23, 15);
-    drawTaperedLimb(29, 31, 16, 17);
-    drawTaperedLimb(24, 26, 32, 24);
-    drawTaperedLimb(26, 28, 23, 15);
-    drawTaperedLimb(30, 32, 16, 17);
+      // Oral cavity shading proportional to dynamic mouth landmarks during jaw opening
+      const mLeft = pt(9);
+      const mRight = pt(10);
+      const mDist = Math.hypot(mRight.x - mLeft.x, mRight.y - mLeft.y);
+      const jawOpenHint = getDevSampleJawOpen(sampleId, nowMs);
+      if (jawOpenHint > 0.08) {
+        const mCx = (mLeft.x + mRight.x) * 0.5;
+        const mCy = (mLeft.y + mRight.y) * 0.5 + 4;
+        mctx.fillStyle = '#241013';
+        mctx.beginPath();
+        mctx.ellipse(
+          mCx,
+          mCy,
+          Math.max(8, mDist * 0.48),
+          Math.max(3, 13 * jawOpenHint),
+          0,
+          0,
+          Math.PI * 2
+        );
+        mctx.fill();
+      }
 
-    // Athletic compression shorts
-    mctx.fillStyle = '#1e293b';
-    mctx.beginPath();
-    mctx.moveTo(rh.x - 16, rh.y - 34);
-    mctx.lineTo(lh.x + 16, lh.y - 34);
-    mctx.lineTo(lh.x + 26, lh.y + 66);
-    mctx.lineTo((lh.x + rh.x) * 0.5 + 4, lh.y + 24);
-    mctx.lineTo(rh.x - 26, rh.y + 66);
-    mctx.closePath();
-    mctx.fill();
+      mctx.fillStyle = '#1c1816';
+      mctx.beginPath();
+      mctx.ellipse(nose.x, nose.y - 28, 42, 26, 0, Math.PI, Math.PI * 2);
+      mctx.fill();
 
-    // Head & Hair
-    const headGrad = mctx.createRadialGradient(nose.x - 6, nose.y - 10, 8, nose.x, nose.y, 58);
-    headGrad.addColorStop(0, '#ebba9a');
-    headGrad.addColorStop(1, '#9a684c');
-    mctx.fillStyle = headGrad;
-    mctx.beginPath();
-    mctx.ellipse(nose.x, nose.y, 44, 54, 0, 0, Math.PI * 2);
-    mctx.fill();
-
-    mctx.fillStyle = '#1c1816';
-    mctx.beginPath();
-    mctx.ellipse(nose.x, nose.y - 28, 42, 26, 0, Math.PI, Math.PI * 2);
-    mctx.fill();
-
-    return mc;
-  }, []);
+      return mc;
+    },
+    []
+  );
 
   // Main animation & inference loop
   useEffect(() => {
@@ -601,9 +735,9 @@ export function App() {
           rawLandmarks = poseEngineRef.current.detectVideoFrame(video, now);
         }
       } else if (st.inputMode === 'dev_sample') {
-        if (st.activeDevSample === 'motion_loop') {
-          media = getMotionCanvas(now);
-          rawLandmarks = getDevSampleLandmarks('motion_loop', now);
+        if (st.activeDevSample === 'motion_loop' || st.activeDevSample === 'lateral') {
+          media = getProceduralCanvas(st.activeDevSample, now);
+          rawLandmarks = getDevSampleLandmarks(st.activeDevSample, now);
         } else if (sampleImgRef.current && sampleImgRef.current.complete) {
           media = sampleImgRef.current;
           // Use bundled sample landmarks aligned to the sample image;
@@ -656,9 +790,66 @@ export function App() {
           : rawLandmarks;
       }
 
+      let faceResult: FaceTrackingResult | null = null;
+      if (smoothedLandmarks && smoothedLandmarks.length > 10) {
+        if (st.inputMode === 'dev_sample') {
+          faceResult = {
+            jawOpen: getDevSampleJawOpen(st.activeDevSample, now)
+          };
+        } else {
+          const nose = smoothedLandmarks[0];
+          const noseScreenX =
+            viewport.offsetX + (mirrored ? 1 - nose.x : nose.x) * viewport.drawWidth;
+          const noseScreenY = viewport.offsetY + nose.y * viewport.drawHeight;
+          const nearHead =
+            Math.hypot(noseScreenX - circle.cx, noseScreenY - circle.cy) <=
+            circle.radius * 1.85;
+
+          const isVideoSource =
+            st.inputMode === 'camera' ||
+            (st.inputMode === 'uploaded_file' && uploadedIsVideoRef.current);
+
+          if (!st.isFrozen && nearHead && st.modelTier === 'full') {
+            if (isVideoSource && media instanceof HTMLVideoElement && media.readyState >= 2) {
+              faceFrameCounterRef.current += 1;
+              if (faceFrameCounterRef.current % 2 === 1 || !lastFaceResultRef.current) {
+                const det = poseEngineRef.current.detectFaceVideoFrame(media, now);
+                if (det) {
+                  lastFaceResultRef.current = det;
+                }
+              }
+              faceResult = lastFaceResultRef.current;
+            } else if (
+              !isVideoSource &&
+              (media instanceof HTMLImageElement || media instanceof HTMLCanvasElement)
+            ) {
+              faceResult = poseEngineRef.current.detectFaceImage(media);
+            }
+          }
+
+          if (!faceResult) {
+            if (!roiCanvasRef.current) {
+              roiCanvasRef.current = document.createElement('canvas');
+              roiCanvasRef.current.width = 32;
+              roiCanvasRef.current.height = 32;
+            }
+            const roiCtx = roiCanvasRef.current.getContext('2d', {
+              willReadFrequently: true
+            });
+            const jawOpen = estimateJawOpenFromPoseAndROI(
+              smoothedLandmarks,
+              media,
+              roiCtx
+            );
+            faceResult = { jawOpen };
+          }
+        }
+      }
+
       const orientRes = orientationRef.current.update(
         smoothedLandmarks,
-        st.viewOverride
+        st.viewOverride,
+        faceResult
       );
       if (orientRes.view !== lastOrientation) {
         lastOrientation = orientRes.view;
@@ -669,7 +860,7 @@ export function App() {
       let ghostBones: RenderedStructureInstance[] = [];
 
       if (smoothedLandmarks) {
-        const rig = buildSegmentRig(smoothedLandmarks, viewport, mirrored);
+        const rig = buildSegmentRig(smoothedLandmarks, viewport, mirrored, orientRes);
         structures = projectStructuresToScreen(rig, st.layer, orientRes.view);
         if (st.layer === 'muscle') {
           ghostBones = projectStructuresToScreen(rig, 'bone', orientRes.view);
@@ -756,7 +947,7 @@ export function App() {
 
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, [getMotionCanvas]);
+  }, [getProceduralCanvas]);
 
   // Pointer & touch handlers for drag, tap-to-pin, double-tap reset, pinch-zoom, wheel
   const handlePointerDown = (e: PointerEvent) => {

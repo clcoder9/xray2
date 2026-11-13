@@ -5,9 +5,29 @@ export interface PoseLandmark {
   visibility?: number;
 }
 
-export type ViewModeOverride = 'auto' | 'front' | 'back';
-export type DetectedOrientation = 'front' | 'back';
+export type ViewModeOverride = 'auto' | 'front' | 'back' | 'left' | 'right';
+export type DetectedOrientation = 'front' | 'back' | 'left' | 'right';
 export type AnatomicalSide = 'left' | 'right' | 'midline';
+
+export interface HeadPoseEstimate {
+  /** Head yaw in radians [-PI, PI]: 0 = front, +PI/2 = anatomical left toward camera, -PI/2 = anatomical right toward camera, +-PI = back */
+  yawRad: number;
+  yawDeg: number;
+  pitchRatio: number; // [-1, 1]
+  view: DetectedOrientation;
+  /** +1 if nose/anterior face points toward +X in screen space (or +axisU), -1 toward -X */
+  facingSign: number;
+  /** Real-time jaw opening ratio in [0..1] */
+  jawOpen: number;
+}
+
+export interface FaceTrackingResult {
+  jawOpen: number; // [0..1]
+  yawRad?: number;
+  pitchRad?: number;
+  rollRad?: number;
+  chinPoint?: { x: number; y: number }; // normalized [0..1]
+}
 
 /** Standard MediaPipe 33 Pose Landmark indices */
 export const MP_LANDMARK = {

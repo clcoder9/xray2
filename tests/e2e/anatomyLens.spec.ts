@@ -144,4 +144,41 @@ test.describe('Anatomy Lens E2E (Still-Image Dev Input Mode)', () => {
       await page.screenshot({ path: `${screenshotDir}/head-muscles.png` });
     }
   });
+
+  test('detects Left lateral view on side profile dev sample and switches back cleanly with zero external requests', async ({
+    page
+  }) => {
+    const externalRequests: string[] = [];
+    page.on('request', (req) => {
+      const url = req.url();
+      if (
+        !url.startsWith('http://127.0.0.1') &&
+        !url.startsWith('http://localhost') &&
+        !url.startsWith('data:') &&
+        !url.startsWith('blob:')
+      ) {
+        externalRequests.push(url);
+      }
+    });
+
+    await page.setViewportSize({ width: 412, height: 915 });
+    await page.goto('/?devInput=anterior');
+
+    await expect(page.getByTestId('speech-cloud')).toBeVisible();
+    await page.getByTestId('settings-btn').click();
+    await page.getByTestId('dev-sample-lateral').click();
+    await page.getByTestId('settings-btn').click();
+
+    await expect(page.getByTestId('cycle-view-btn')).toContainText('Left');
+
+    const cloud = page.getByTestId('speech-cloud');
+    await expect(cloud).toBeVisible();
+    await expect(cloud).toHaveAttribute('data-structure-id', /^[mb]_/);
+
+    if (screenshotDir) {
+      await page.screenshot({ path: `${screenshotDir}/lateral-muscles.png` });
+    }
+
+    expect(externalRequests).toEqual([]);
+  });
 });

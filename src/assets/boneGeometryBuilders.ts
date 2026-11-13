@@ -1515,3 +1515,360 @@ export function buildFootPhalangesGeometry(): BoneGeometrySpec {
 
   return { contours, cartilageZones, detailPaths };
 }
+
+// ===========================================================================
+// LATERAL PROFILE OSTEOLOGY BUILDERS (+u = anterior/facing, -u = posterior)
+// ===========================================================================
+
+/**
+ * Generates lateral profile Cranium: frontal bone, glabella, nasal bone tip,
+ * single lateral orbital rim, zygomatic arch, external acoustic meatus,
+ * mastoid process, occipital protuberance, and cranial sutures.
+ */
+export function buildCraniumLateralGeometry(): BoneGeometrySpec {
+  const craniumProfile: PointUV[] = [
+    pt(-0.08, 0.025), // bregma / vertex
+    pt(0.32, 0.045), // frontal vault
+    pt(0.68, 0.14), // frontal eminence
+    pt(0.82, 0.27), // brow / supraorbital
+    pt(0.84, 0.34), // glabella
+    pt(0.79, 0.38), // nasion bridge
+    pt(0.92, 0.48), // nasal bone anterior tip
+    pt(0.82, 0.50), // piriform margin
+    pt(0.68, 0.50), // zygomatico-maxillary rim
+    pt(0.56, 0.53), // zygomatic arch anterior
+    pt(0.18, 0.53), // zygomatic arch posterior
+    pt(0.02, 0.54), // articular tubercle / TMJ roof
+    pt(-0.10, 0.57), // external acoustic meatus rim
+    pt(-0.14, 0.65), // mastoid process tip
+    pt(-0.30, 0.63), // mastoid posterior
+    pt(-0.56, 0.59), // occipital nuchal plane
+    pt(-0.84, 0.52), // external occipital protuberance (inion)
+    pt(-0.94, 0.38), // occipital vault
+    pt(-0.86, 0.20), // parietal boss posterior
+    pt(-0.56, 0.075) // parietal arch
+  ];
+
+  // Lateral orbital cavity rim
+  const lateralOrbit: PointUV[] = [
+    pt(0.60, 0.38),
+    pt(0.76, 0.38),
+    pt(0.78, 0.46),
+    pt(0.66, 0.49),
+    pt(0.56, 0.46)
+  ];
+
+  // Zygomatic arch undercut / temporal fossa gap
+  const zygomaticGap: PointUV[] = [
+    pt(0.14, 0.475),
+    pt(0.46, 0.475),
+    pt(0.45, 0.52),
+    pt(0.14, 0.515)
+  ];
+
+  // External auditory canal cutout
+  const earCanal = makeOval(-0.12, 0.555, 0.045, 0.032, 10);
+
+  return {
+    contours: [craniumProfile],
+    cutouts: [lateralOrbit, zygomaticGap, earCanal],
+    trabecularZones: [
+      makeOval(-0.14, 0.21, 0.58, 0.12, 16), // cranial vault diploe
+      makeOval(0.76, 0.33, 0.075, 0.035, 8), // frontal sinus / brow ridge
+      makeOval(-0.17, 0.60, 0.06, 0.04, 8) // mastoid air cells
+    ],
+    detailPaths: [
+      // Coronal suture
+      [pt(0.12, 0.04), pt(0.20, 0.18), pt(0.24, 0.34), pt(0.22, 0.44)],
+      // Lambdoid suture
+      [pt(-0.58, 0.08), pt(-0.68, 0.24), pt(-0.74, 0.40), pt(-0.66, 0.54)],
+      // Squamosal suture arch
+      [pt(-0.36, 0.46), pt(-0.12, 0.36), pt(0.18, 0.40), pt(0.32, 0.47)],
+      // Zygomatic arch ridge
+      [pt(0.02, 0.525), pt(0.34, 0.515), pt(0.62, 0.50)]
+    ]
+  };
+}
+
+/**
+ * Generates lateral profile Maxilla with anterior nasal spine, zygomatic process,
+ * and lateral upper dental arcade (incisors to molars).
+ */
+export function buildMaxillaLateralGeometry(): BoneGeometrySpec {
+  const contour: PointUV[] = [
+    pt(0.26, 0.51),
+    pt(0.58, 0.50),
+    pt(0.78, 0.505),
+    pt(0.88, 0.545), // anterior nasal spine
+    pt(0.83, 0.61), // premaxilla / incisor alveolus
+    pt(0.84, 0.69),
+    pt(0.62, 0.70),
+    pt(0.34, 0.69),
+    pt(0.22, 0.65), // maxillary tuberosity
+    pt(0.22, 0.56)
+  ];
+
+  const teeth: PointUV[][] = [];
+  const toothU = [0.34, 0.44, 0.54, 0.64, 0.74, 0.82];
+  for (let i = 0; i < toothU.length - 1; i++) {
+    const u0 = toothU[i];
+    const u1 = toothU[i + 1];
+    teeth.push([
+      pt(u0 + 0.01, 0.688),
+      pt(u0 + 0.01, 0.730),
+      pt(u1 - 0.01, 0.730),
+      pt(u1 - 0.01, 0.688),
+      pt(u0 + 0.01, 0.688)
+    ]);
+  }
+
+  return {
+    contours: [contour],
+    trabecularZones: [makeOval(0.54, 0.62, 0.22, 0.045, 12)],
+    detailPaths: [
+      [pt(0.28, 0.678), pt(0.82, 0.682)],
+      ...teeth
+    ]
+  };
+}
+
+/**
+ * Generates lateral L-shaped Mandible with TMJ condyle, coronoid process,
+ * vertical ramus, gonial angle, mental foramen, chin, and lower profile teeth.
+ */
+export function buildMandibleLateralGeometry(): BoneGeometrySpec {
+  const contour: PointUV[] = [
+    pt(-0.08, 0.54), // condylar head posterior
+    pt(-0.02, 0.525), // condylar articular dome
+    pt(0.04, 0.555), // condylar neck anterior
+    pt(0.13, 0.595), // mandibular notch
+    pt(0.24, 0.53), // coronoid process tip
+    pt(0.28, 0.62), // anterior ramus border
+    pt(0.30, 0.76), // oblique line / retromolar
+    pt(0.54, 0.795), // alveolar margin
+    pt(0.79, 0.805), // lower incisor alveolus
+    pt(0.83, 0.88), // pogonion / chin contour
+    pt(0.85, 0.945), // mental protuberance
+    pt(0.74, 0.965), // inferior chin border
+    pt(0.36, 0.925), // mandibular body inferior border
+    pt(0.06, 0.875), // gonial angle
+    pt(-0.04, 0.825),
+    pt(-0.06, 0.68) // posterior ramus border
+  ];
+
+  const teeth: PointUV[][] = [];
+  const toothU = [0.34, 0.44, 0.54, 0.64, 0.74, 0.81];
+  for (let i = 0; i < toothU.length - 1; i++) {
+    const u0 = toothU[i];
+    const u1 = toothU[i + 1];
+    teeth.push([
+      pt(u0 + 0.01, 0.802),
+      pt(u0 + 0.01, 0.760),
+      pt(u1 - 0.01, 0.760),
+      pt(u1 - 0.01, 0.802),
+      pt(u0 + 0.01, 0.802)
+    ]);
+  }
+
+  return {
+    contours: [contour],
+    cutouts: [makeOval(0.58, 0.875, 0.03, 0.018, 8)], // mental foramen
+    trabecularZones: [
+      makeOval(0.0, 0.78, 0.055, 0.075, 10),
+      makeOval(0.68, 0.90, 0.09, 0.038, 10)
+    ],
+    cartilageZones: [makeOval(-0.02, 0.52, 0.06, 0.016, 8)], // TMJ articular disc
+    detailPaths: [
+      [pt(0.08, 0.835), pt(0.54, 0.895)], // mandibular canal / oblique line
+      ...teeth
+    ]
+  };
+}
+
+/**
+ * Generates sagittal/lateral spinal column section with anterior vertebral bodies,
+ * intervertebral discs, and posterior spinous processes along physiological curves.
+ */
+export function buildVertebralLateralSection(opts: {
+  count: number;
+  vStart: number;
+  vEnd: number;
+  bodyDepthStart: number;
+  bodyDepthEnd: number;
+  curveApexU: number; // + = anterior lordosis, - = posterior kyphosis
+  spinousReach: number;
+  includeBottomDisc?: boolean;
+}): BoneGeometrySpec {
+  const contours: PointUV[][] = [];
+  const trabecularZones: PointUV[][] = [];
+  const cartilageZones: PointUV[][] = [];
+  const detailPaths: PointUV[][] = [];
+
+  const step = (opts.vEnd - opts.vStart) / opts.count;
+  for (let i = 0; i < opts.count; i++) {
+    const t = opts.count > 1 ? i / (opts.count - 1) : 0.5;
+    const cv = opts.vStart + (i + 0.5) * step;
+    const uOffset = Math.sin(t * Math.PI) * opts.curveApexU;
+    const depth = opts.bodyDepthStart + (opts.bodyDepthEnd - opts.bodyDepthStart) * t;
+    const hh = step * 0.36;
+
+    // Vertebral body anteriorly (+u) + pedicle + spinous process posteriorly (-u)
+    const uAnt = uOffset + depth * 0.55;
+    const uPostBody = uOffset - depth * 0.45;
+    const uSpinTip = uPostBody - opts.spinousReach;
+
+    contours.push([
+      pt(uPostBody, cv - hh),
+      pt(uAnt, cv - hh),
+      pt(uAnt + 0.012, cv),
+      pt(uAnt, cv + hh),
+      pt(uPostBody, cv + hh),
+      pt(uPostBody - opts.spinousReach * 0.35, cv + hh * 0.45),
+      pt(uSpinTip, cv + hh * 0.85),
+      pt(uSpinTip - 0.012, cv + hh * 0.35),
+      pt(uPostBody - opts.spinousReach * 0.35, cv - hh * 0.45)
+    ]);
+
+    trabecularZones.push(makeOval(uOffset + depth * 0.05, cv, depth * 0.38, hh * 0.68, 10));
+    detailPaths.push([
+      pt(uPostBody + 0.015, cv - hh * 0.72),
+      pt(uAnt - 0.015, cv - hh * 0.72)
+    ]);
+
+    if (i < opts.count - 1 || opts.includeBottomDisc) {
+      const discV = cv + step * 0.5;
+      const tNext = opts.count > 1 ? (i + 0.5) / (opts.count - 1) : 0.5;
+      const uNext = Math.sin(Math.min(1, tNext) * Math.PI) * opts.curveApexU;
+      cartilageZones.push(makeOval(uNext + depth * 0.05, discV, depth * 0.48, step * 0.11, 10));
+    }
+  }
+
+  return { contours, trabecularZones, cartilageZones, detailPaths };
+}
+
+/**
+ * Generates lateral rib cage sweep (+u = anterior costal arch, -u = posterior spine).
+ */
+export function buildRibCageLateralSection(opts: {
+  isTrueRibs: boolean;
+}): BoneGeometrySpec {
+  const contours: PointUV[][] = [];
+  const cartilageZones: PointUV[][] = [];
+  const detailPaths: PointUV[][] = [];
+
+  if (opts.isTrueRibs) {
+    for (let i = 0; i < 7; i++) {
+      const f = i / 6;
+      const vPost = 0.09 + f * 0.27;
+      const vAnt = 0.12 + f * 0.34;
+      const uPost = -0.36 - Math.sin(f * Math.PI) * 0.08;
+      const uAnt = 0.44 + Math.sin(f * Math.PI * 0.85) * 0.16;
+      const thick = 0.015;
+      const uMid = (uPost + uAnt) * 0.5;
+      const vMid = (vPost + vAnt) * 0.5 + 0.018;
+
+      contours.push([
+        pt(uPost, vPost - thick),
+        pt(uMid, vMid - thick),
+        pt(uAnt, vAnt - thick * 0.85),
+        pt(uAnt - 0.01, vAnt + thick * 0.85),
+        pt(uMid, vMid + thick),
+        pt(uPost, vPost + thick)
+      ]);
+      cartilageZones.push([
+        pt(uAnt, vAnt - thick * 0.7),
+        pt(uAnt + 0.14, vAnt - 0.025 - thick * 0.6),
+        pt(uAnt + 0.14, vAnt - 0.025 + thick * 0.6),
+        pt(uAnt, vAnt + thick * 0.7)
+      ]);
+      detailPaths.push([pt(uPost + 0.06, vPost + 0.004), pt(uMid, vMid + 0.004), pt(uAnt - 0.04, vAnt + 0.004)]);
+    }
+  } else {
+    for (let i = 0; i < 5; i++) {
+      const f = i / 4;
+      const vPost = 0.40 + f * 0.17;
+      const vAnt = 0.51 + f * 0.13;
+      const uPost = -0.38 + f * 0.04;
+      const uAnt = 0.46 - f * 0.14;
+      const thick = 0.013;
+      const uMid = (uPost + uAnt) * 0.5;
+      const vMid = (vPost + vAnt) * 0.5 + 0.016;
+
+      contours.push([
+        pt(uPost, vPost - thick),
+        pt(uMid, vMid - thick),
+        pt(uAnt, vAnt - thick * 0.8),
+        pt(uAnt - 0.01, vAnt + thick * 0.8),
+        pt(uMid, vMid + thick),
+        pt(uPost, vPost + thick)
+      ]);
+      if (i < 3) {
+        cartilageZones.push([
+          pt(uAnt, vAnt - thick * 0.6),
+          pt(uAnt + 0.11, vAnt - 0.045 - thick * 0.5),
+          pt(uAnt + 0.11, vAnt - 0.045 + thick * 0.5),
+          pt(uAnt, vAnt + thick * 0.6)
+        ]);
+      }
+      detailPaths.push([pt(uPost + 0.06, vPost + 0.004), pt(uMid, vMid + 0.004)]);
+    }
+  }
+
+  return { contours, cartilageZones, detailPaths };
+}
+
+/**
+ * Generates lateral profile Scapula (acromion hood, glenoid socket, coracoid & dorsal blade).
+ */
+export function buildScapulaLateralGeometry(): BoneGeometrySpec {
+  const contour: PointUV[] = [
+    pt(-0.34, 0.12), // superior angle
+    pt(-0.08, 0.10), // acromion peak
+    pt(0.08, 0.12), // acromion anterior tip
+    pt(0.18, 0.145), // coracoid process
+    pt(0.08, 0.185), // glenoid rim
+    pt(0.06, 0.245), // glenoid inferior
+    pt(-0.18, 0.345),
+    pt(-0.42, 0.39), // inferior angle
+    pt(-0.56, 0.29), // dorsal border
+    pt(-0.52, 0.18) // scapular spine root
+  ];
+
+  return {
+    contours: [contour],
+    trabecularZones: [makeOval(-0.02, 0.13, 0.09, 0.028, 8)],
+    cartilageZones: [makeOval(0.07, 0.21, 0.032, 0.042, 10)], // glenoid labrum
+    detailPaths: [
+      [pt(-0.52, 0.18), pt(-0.22, 0.14), pt(0.04, 0.115)] // spine of scapula -> acromion
+    ]
+  };
+}
+
+/**
+ * Generates lateral profile Ilium (iliac crest, ASIS, PSIS, greater sciatic notch, acetabulum).
+ */
+export function buildIliumLateralGeometry(): BoneGeometrySpec {
+  const contour: PointUV[] = [
+    pt(-0.52, 0.22), // PSIS
+    pt(-0.34, 0.10), // iliac crest posterior
+    pt(0.06, 0.06), // iliac crest summit
+    pt(0.46, 0.14),
+    pt(0.62, 0.24), // ASIS (+u anterior)
+    pt(0.54, 0.38), // AIIS
+    pt(0.36, 0.52), // acetabular rim anterior
+    pt(0.12, 0.60), // acetabulum inferior
+    pt(-0.14, 0.54), // acetabular rim posterior
+    pt(-0.22, 0.42), // greater sciatic notch
+    pt(-0.44, 0.36)
+  ];
+
+  return {
+    contours: [contour],
+    trabecularZones: [makeOval(0.04, 0.24, 0.36, 0.11, 14)],
+    cartilageZones: [makeOval(0.12, 0.50, 0.14, 0.095, 12)], // acetabular labrum & lunate cartilage
+    detailPaths: [
+      [pt(-0.38, 0.22), pt(0.04, 0.16), pt(0.46, 0.24)], // gluteal lines
+      [pt(-0.28, 0.32), pt(0.08, 0.28), pt(0.42, 0.34)]
+    ]
+  };
+}

@@ -10,6 +10,8 @@ export interface UITextBundle {
   autoView: string;
   frontView: string;
   backView: string;
+  leftView: string;
+  rightView: string;
   flipCamera: string;
   devAndSettings: string;
   enableCameraTitle: string;
@@ -50,6 +52,8 @@ const DE_TEXT: UITextBundle = {
   autoView: 'Auto',
   frontView: 'Vorne',
   backView: 'Hinten',
+  leftView: 'Links',
+  rightView: 'Rechts',
   flipCamera: 'Kamera wechseln',
   devAndSettings: 'Input & Modell',
   enableCameraTitle: 'Kamera für Anatomy Lens aktivieren',
@@ -100,6 +104,8 @@ const EN_TEXT: UITextBundle = {
   autoView: 'Auto',
   frontView: 'Front',
   backView: 'Back',
+  leftView: 'Left',
+  rightView: 'Right',
   flipCamera: 'Switch camera',
   devAndSettings: 'Input & Model',
   enableCameraTitle: 'Enable Camera for Anatomy Lens',
@@ -166,12 +172,18 @@ export function getSideLabel(
       : 'Right';
 }
 
+function viewName(view: DetectedOrientation, t: UITextBundle): string {
+  if (view === 'front') return t.frontView;
+  if (view === 'back') return t.backView;
+  if (view === 'left') return t.leftView;
+  return t.rightView;
+}
+
 export function getViewButtonLabel(
   override: ViewModeOverride,
   detected: DetectedOrientation,
   t: UITextBundle
 ): string {
-  if (override === 'front') return t.frontView;
-  if (override === 'back') return t.backView;
-  return `${t.autoView}: ${detected === 'front' ? t.frontView : t.backView}`;
+  if (override !== 'auto') return viewName(override, t);
+  return `${t.autoView}: ${viewName(detected, t)}`;
 }

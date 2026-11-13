@@ -4,6 +4,7 @@ import {
   buildCarpalsGeometry,
   buildClavicleGeometry,
   buildCraniumGeometry,
+  buildCraniumLateralGeometry,
   buildFemurGeometry,
   buildFibulaGeometry,
   buildFootPhalangesGeometry,
@@ -12,21 +13,27 @@ import {
   buildHumeralEpicondylesGeometry,
   buildHumerusGeometry,
   buildIliumGeometry,
+  buildIliumLateralGeometry,
   buildIschiumGeometry,
   buildMandibleGeometry,
+  buildMandibleLateralGeometry,
   buildMaxillaGeometry,
+  buildMaxillaLateralGeometry,
   buildMetacarpalsGeometry,
   buildPatellaGeometry,
   buildPubisGeometry,
   buildRadiusGeometry,
+  buildRibCageLateralSection,
   buildRibCageSection,
   buildSacrumGeometry,
   buildScapulaGeometry,
+  buildScapulaLateralGeometry,
   buildSternumGeometry,
   buildTalusGeometry,
   buildTarsalsMetatarsalsGeometry,
   buildTibiaGeometry,
   buildUlnaGeometry,
+  buildVertebralLateralSection,
   buildVertebralSection
 } from './boneGeometryBuilders';
 import {
@@ -67,6 +74,18 @@ export interface ArtworkDefinition {
   depthShade: {
     highlight: number; // 0..1
     contrast: number; // 0..1
+  };
+  /** Optional coronal depth in [-1, 1] (+ = anterior surface, - = posterior) for 2.5D yaw rotation */
+  coronalDepthW?: number;
+  /** Optional lateral profile geometry used when segment view is 'left' or 'right' (+u = anterior/facing) */
+  lateralGeometry?: {
+    contours: readonly (readonly PointUV[])[];
+    cutouts?: readonly (readonly PointUV[])[];
+    trabecularZones?: readonly (readonly PointUV[])[];
+    cartilageZones?: readonly (readonly PointUV[])[];
+    detailPaths?: readonly (readonly PointUV[])[];
+    anchor: PointUV;
+    fiberAngleDeg?: number;
   };
   /** Optional external SVG asset override path for future art upgrades */
   externalSvg?: string;
@@ -169,7 +188,22 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
     fiberAngleDeg: 90,
     tendonProximalRatio: 0.22,
     tendonDistalRatio: 0.08,
-    depthShade: { highlight: 0.55, contrast: 0.45 }
+    depthShade: { highlight: 0.55, contrast: 0.45 },
+    coronalDepthW: 0.56,
+    lateralGeometry: {
+      contours: [
+        [
+          [0.38, 0.09],
+          [0.64, 0.14],
+          [0.82, 0.27],
+          [0.82, 0.35],
+          [0.54, 0.34],
+          [0.36, 0.20]
+        ]
+      ],
+      anchor: [0.64, 0.24],
+      fiberAngleDeg: 75
+    }
   },
   {
     artworkRef: 'm_orbicularis_oculi',
@@ -180,7 +214,15 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
     fiberAngleDeg: 0,
     tendonProximalRatio: 0.05,
     tendonDistalRatio: 0.05,
-    depthShade: { highlight: 0.45, contrast: 0.5 }
+    depthShade: { highlight: 0.45, contrast: 0.5 },
+    coronalDepthW: 0.58,
+    lateralGeometry: {
+      contours: [makeEllipse(0.65, 0.43, 0.16, 0.088, 14)],
+      cutouts: [makeEllipse(0.68, 0.43, 0.08, 0.036, 10)],
+      detailPaths: [makeEllipse(0.66, 0.43, 0.12, 0.06, 12)],
+      anchor: [0.66, 0.43],
+      fiberAngleDeg: 0
+    }
   },
   {
     artworkRef: 'm_zygomaticus_major',
@@ -195,7 +237,19 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
     fiberAngleDeg: -45,
     tendonProximalRatio: 0.12,
     tendonDistalRatio: 0.1,
-    depthShade: { highlight: 0.5, contrast: 0.45 }
+    depthShade: { highlight: 0.5, contrast: 0.45 },
+    coronalDepthW: 0.48,
+    lateralGeometry: {
+      contours: [
+        buildStrip([
+          [0.34, 0.51, 0.07],
+          [0.53, 0.63, 0.07],
+          [0.72, 0.74, 0.06]
+        ])
+      ],
+      anchor: [0.53, 0.63],
+      fiberAngleDeg: 45
+    }
   },
   {
     artworkRef: 'm_temporalis',
@@ -224,7 +278,33 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
     fiberAngleDeg: 78,
     tendonProximalRatio: 0.1,
     tendonDistalRatio: 0.25,
-    depthShade: { highlight: 0.5, contrast: 0.55 }
+    depthShade: { highlight: 0.5, contrast: 0.55 },
+    coronalDepthW: -0.05,
+    lateralGeometry: {
+      contours: [
+        [
+          [-0.26, 0.22],
+          [0.02, 0.15],
+          [0.32, 0.18],
+          [0.44, 0.32],
+          [0.36, 0.48],
+          [0.24, 0.58],
+          [0.14, 0.52],
+          [-0.14, 0.42]
+        ]
+      ],
+      detailPaths: buildConvergentFascicles(
+        [
+          [-0.20, 0.24],
+          [0.02, 0.18],
+          [0.24, 0.20],
+          [0.38, 0.30]
+        ],
+        [0.22, 0.55]
+      ),
+      anchor: [0.14, 0.35],
+      fiberAngleDeg: 78
+    }
   },
   {
     artworkRef: 'm_masseter',
@@ -240,7 +320,34 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
     fiberAngleDeg: 82,
     tendonProximalRatio: 0.16,
     tendonDistalRatio: 0.14,
-    depthShade: { highlight: 0.65, contrast: 0.6 }
+    depthShade: { highlight: 0.65, contrast: 0.6 },
+    coronalDepthW: 0.22,
+    lateralGeometry: {
+      contours: [
+        [
+          [0.06, 0.52],
+          [0.44, 0.51],
+          [0.38, 0.84],
+          [0.02, 0.86]
+        ]
+      ],
+      detailPaths: [
+        [
+          [0.14, 0.54],
+          [0.10, 0.82]
+        ],
+        [
+          [0.25, 0.53],
+          [0.22, 0.82]
+        ],
+        [
+          [0.36, 0.53],
+          [0.32, 0.80]
+        ]
+      ],
+      anchor: [0.22, 0.68],
+      fiberAngleDeg: 84
+    }
   },
   {
     artworkRef: 'm_orbicularis_oris',
@@ -251,7 +358,15 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
     fiberAngleDeg: 0,
     tendonProximalRatio: 0.04,
     tendonDistalRatio: 0.04,
-    depthShade: { highlight: 0.5, contrast: 0.45 }
+    depthShade: { highlight: 0.5, contrast: 0.45 },
+    coronalDepthW: 0.68,
+    lateralGeometry: {
+      contours: [makeEllipse(0.75, 0.75, 0.14, 0.095, 14)],
+      cutouts: [makeEllipse(0.79, 0.75, 0.08, 0.026, 10)],
+      detailPaths: [makeEllipse(0.76, 0.75, 0.11, 0.06, 12)],
+      anchor: [0.76, 0.75],
+      fiberAngleDeg: 0
+    }
   },
   {
     artworkRef: 'm_sternocleidomastoideus',
@@ -1901,7 +2016,12 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
     fiberAngleDeg: 0,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
-    depthShade: { highlight: 0.88, contrast: 0.68 }
+    depthShade: { highlight: 0.88, contrast: 0.68 },
+    coronalDepthW: 0.04,
+    lateralGeometry: {
+      ...buildCraniumLateralGeometry(),
+      anchor: [0.15, 0.28]
+    }
   },
   {
     artworkRef: 'b_maxilla',
@@ -1910,7 +2030,12 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
     fiberAngleDeg: 0,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
-    depthShade: { highlight: 0.82, contrast: 0.64 }
+    depthShade: { highlight: 0.82, contrast: 0.64 },
+    coronalDepthW: 0.62,
+    lateralGeometry: {
+      ...buildMaxillaLateralGeometry(),
+      anchor: [0.58, 0.60]
+    }
   },
   {
     artworkRef: 'b_mandibula',
@@ -1919,7 +2044,12 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
     fiberAngleDeg: 0,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
-    depthShade: { highlight: 0.85, contrast: 0.66 }
+    depthShade: { highlight: 0.85, contrast: 0.66 },
+    coronalDepthW: 0.54,
+    lateralGeometry: {
+      ...buildMandibleLateralGeometry(),
+      anchor: [0.46, 0.84]
+    }
   },
   {
     artworkRef: 'b_atlas_axis',
@@ -1947,7 +2077,20 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
     fiberAngleDeg: 90,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
-    depthShade: { highlight: 0.86, contrast: 0.68 }
+    depthShade: { highlight: 0.86, contrast: 0.68 },
+    lateralGeometry: {
+      ...buildVertebralLateralSection({
+        count: 7,
+        vStart: 0.08,
+        vEnd: 0.94,
+        bodyDepthStart: 0.24,
+        bodyDepthEnd: 0.28,
+        curveApexU: 0.09, // cervical lordosis (+u anterior)
+        spinousReach: 0.24,
+        includeBottomDisc: true
+      }),
+      anchor: [0, 0.55]
+    }
   },
   {
     artworkRef: 'b_clavicula',
@@ -1974,7 +2117,12 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
     fiberAngleDeg: 10,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
-    depthShade: { highlight: 0.86, contrast: 0.64 }
+    depthShade: { highlight: 0.86, contrast: 0.64 },
+    lateralGeometry: {
+      ...buildRibCageLateralSection({ isTrueRibs: true }),
+      anchor: [0.05, 0.26],
+      fiberAngleDeg: 16
+    }
   },
   {
     artworkRef: 'b_costae_spuriae',
@@ -1983,7 +2131,12 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
     fiberAngleDeg: 14,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
-    depthShade: { highlight: 0.82, contrast: 0.62 }
+    depthShade: { highlight: 0.82, contrast: 0.62 },
+    lateralGeometry: {
+      ...buildRibCageLateralSection({ isTrueRibs: false }),
+      anchor: [0.05, 0.53],
+      fiberAngleDeg: 18
+    }
   },
   {
     artworkRef: 'b_scapula',
@@ -1992,7 +2145,11 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
     fiberAngleDeg: -16,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
-    depthShade: { highlight: 0.88, contrast: 0.68 }
+    depthShade: { highlight: 0.88, contrast: 0.68 },
+    lateralGeometry: {
+      ...buildScapulaLateralGeometry(),
+      anchor: [-0.24, 0.22]
+    }
   },
   {
     artworkRef: 'b_vertebrae_thoracicae',
@@ -2011,7 +2168,20 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
     fiberAngleDeg: 90,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
-    depthShade: { highlight: 0.88, contrast: 0.7 }
+    depthShade: { highlight: 0.88, contrast: 0.7 },
+    lateralGeometry: {
+      ...buildVertebralLateralSection({
+        count: 12,
+        vStart: 0.02,
+        vEnd: 0.56,
+        bodyDepthStart: 0.12,
+        bodyDepthEnd: 0.16,
+        curveApexU: -0.44, // thoracic kyphosis (-u posterior)
+        spinousReach: 0.14,
+        includeBottomDisc: true
+      }),
+      anchor: [-0.42, 0.29]
+    }
   },
   {
     artworkRef: 'b_vertebrae_lumbales',
@@ -2030,7 +2200,20 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
     fiberAngleDeg: 90,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
-    depthShade: { highlight: 0.9, contrast: 0.7 }
+    depthShade: { highlight: 0.9, contrast: 0.7 },
+    lateralGeometry: {
+      ...buildVertebralLateralSection({
+        count: 5,
+        vStart: 0.57,
+        vEnd: 0.94,
+        bodyDepthStart: 0.17,
+        bodyDepthEnd: 0.20,
+        curveApexU: -0.18, // lumbar curve bridging thoracic kyphosis to sacrum
+        spinousReach: 0.13,
+        includeBottomDisc: true
+      }),
+      anchor: [-0.22, 0.76]
+    }
   },
   {
     artworkRef: 'b_humerus',
@@ -2102,7 +2285,11 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
     fiberAngleDeg: 18,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
-    depthShade: { highlight: 0.88, contrast: 0.68 }
+    depthShade: { highlight: 0.88, contrast: 0.68 },
+    lateralGeometry: {
+      ...buildIliumLateralGeometry(),
+      anchor: [0.06, 0.28]
+    }
   },
   {
     artworkRef: 'b_os_ischii',
