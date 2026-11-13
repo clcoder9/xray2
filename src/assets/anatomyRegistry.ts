@@ -117,17 +117,19 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
     artworkRef: 'm_frontalis',
     contours: [
       [
-        [-0.44, 0.14],
-        [0, 0.11],
-        [0.44, 0.14],
-        [0.48, 0.34],
-        [0.18, 0.36],
-        [0, 0.33],
-        [-0.18, 0.36],
-        [-0.48, 0.34]
+        [-0.72, 0.12],
+        [-0.36, 0.07],
+        [0, 0.09],
+        [0.36, 0.07],
+        [0.72, 0.12],
+        [0.76, 0.34],
+        [0.36, 0.36],
+        [0, 0.32],
+        [-0.36, 0.36],
+        [-0.76, 0.34]
       ]
     ],
-    anchor: [0, 0.24],
+    anchor: [0, 0.22],
     fiberAngleDeg: 90,
     tendonProximalRatio: 0.22,
     tendonDistalRatio: 0.08,
@@ -135,8 +137,8 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
   },
   {
     artworkRef: 'm_orbicularis_oculi',
-    contours: [makeEllipse(0.28, 0.43, 0.16, 0.075, 12)],
-    anchor: [0.28, 0.43],
+    contours: [makeEllipse(0.38, 0.44, 0.26, 0.105, 14)],
+    anchor: [0.38, 0.44],
     fiberAngleDeg: 0,
     tendonProximalRatio: 0.05,
     tendonDistalRatio: 0.05,
@@ -146,12 +148,12 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
     artworkRef: 'm_zygomaticus_major',
     contours: [
       buildStrip([
-        [0.44, 0.51, 0.05],
-        [0.32, 0.59, 0.045],
-        [0.19, 0.68, 0.04]
+        [0.74, 0.5, 0.085],
+        [0.52, 0.62, 0.08],
+        [0.28, 0.73, 0.07]
       ])
     ],
-    anchor: [0.32, 0.59],
+    anchor: [0.52, 0.62],
     fiberAngleDeg: -45,
     tendonProximalRatio: 0.12,
     tendonDistalRatio: 0.1,
@@ -161,14 +163,15 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
     artworkRef: 'm_temporalis',
     contours: [
       [
-        [0.42, 0.22],
-        [0.64, 0.26],
-        [0.68, 0.44],
-        [0.56, 0.58],
-        [0.46, 0.48]
+        [0.54, 0.16],
+        [0.88, 0.2],
+        [0.96, 0.38],
+        [0.82, 0.58],
+        [0.58, 0.52],
+        [0.52, 0.34]
       ]
     ],
-    anchor: [0.56, 0.38],
+    anchor: [0.76, 0.36],
     fiberAngleDeg: 78,
     tendonProximalRatio: 0.1,
     tendonDistalRatio: 0.25,
@@ -178,13 +181,13 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
     artworkRef: 'm_masseter',
     contours: [
       [
-        [0.38, 0.56],
-        [0.54, 0.54],
-        [0.56, 0.77],
-        [0.36, 0.79]
+        [0.52, 0.52],
+        [0.86, 0.5],
+        [0.88, 0.82],
+        [0.5, 0.86]
       ]
     ],
-    anchor: [0.46, 0.67],
+    anchor: [0.69, 0.68],
     fiberAngleDeg: 82,
     tendonProximalRatio: 0.16,
     tendonDistalRatio: 0.14,
@@ -192,8 +195,8 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
   },
   {
     artworkRef: 'm_orbicularis_oris',
-    contours: [makeEllipse(0, 0.71, 0.21, 0.075, 14)],
-    anchor: [0, 0.71],
+    contours: [makeEllipse(0, 0.75, 0.34, 0.105, 14)],
+    anchor: [0, 0.75],
     fiberAngleDeg: 0,
     tendonProximalRatio: 0.04,
     tendonDistalRatio: 0.04,
@@ -1741,8 +1744,8 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
   // =========================================================================
   {
     artworkRef: 'b_cranium',
-    contours: [makeEllipse(0, 0.3, 0.58, 0.28, 18)],
-    anchor: [0, 0.28],
+    contours: [makeEllipse(0, 0.29, 0.88, 0.27, 18)],
+    anchor: [0, 0.27],
     fiberAngleDeg: 0,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
@@ -1752,13 +1755,13 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
     artworkRef: 'b_maxilla',
     contours: [
       [
-        [-0.36, 0.52],
-        [0.36, 0.52],
-        [0.3, 0.68],
-        [-0.3, 0.68]
+        [-0.56, 0.48],
+        [0.56, 0.48],
+        [0.46, 0.68],
+        [-0.46, 0.68]
       ]
     ],
-    anchor: [0, 0.6],
+    anchor: [0, 0.58],
     fiberAngleDeg: 0,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,
@@ -1768,21 +1771,21 @@ const DEFINITIONS: readonly ArtworkDefinition[] = [
     artworkRef: 'b_mandibula',
     contours: [
       [
-        [-0.48, 0.58],
-        [-0.34, 0.6],
-        [-0.24, 0.78],
+        [-0.78, 0.58],
+        [-0.54, 0.6],
+        [-0.38, 0.78],
         [0, 0.86],
-        [0.24, 0.78],
-        [0.34, 0.6],
-        [0.48, 0.58],
-        [0.44, 0.82],
-        [0.2, 0.94],
+        [0.38, 0.78],
+        [0.54, 0.6],
+        [0.78, 0.58],
+        [0.7, 0.82],
+        [0.34, 0.94],
         [0, 0.96],
-        [-0.2, 0.94],
-        [-0.44, 0.82]
+        [-0.34, 0.94],
+        [-0.7, 0.82]
       ]
     ],
-    anchor: [0, 0.84],
+    anchor: [0, 0.86],
     fiberAngleDeg: 0,
     tendonProximalRatio: 0,
     tendonDistalRatio: 0,

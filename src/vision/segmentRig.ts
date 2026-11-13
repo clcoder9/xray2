@@ -312,53 +312,98 @@ export function buildSegmentRig(
   }
 
   // 3. Head & Neck segments
-  const headConf = isConfident(noseLm) || isConfident(leEarLm, reEarLm);
+  const headConf =
+    isConfident(noseLm) ||
+    isConfident(leEarLm, reEarLm) ||
+    isConfident(leEyeLm, reEyeLm);
   if (headConf) {
     const earsConf = isConfident(leEarLm, reEarLm);
     const eyesConf = isConfident(leEyeLm, reEyeLm);
     const mouthConf = isConfident(mlLm, mrLm);
 
-    const earMid = earsConf
-      ? mid(toScreen(leEarLm!, vp, mirrored), toScreen(reEarLm!, vp, mirrored))
-      : noseLm
-        ? toScreen(noseLm, vp, mirrored)
-        : shoulderMid;
+    const leEarPt = leEarLm ? toScreen(leEarLm, vp, mirrored) : null;
+    const reEarPt = reEarLm ? toScreen(reEarLm, vp, mirrored) : null;
+    const leEyePt = leEyeLm ? toScreen(leEyeLm, vp, mirrored) : null;
+    const reEyePt = reEyeLm ? toScreen(reEyeLm, vp, mirrored) : null;
+    const mlPt = mlLm ? toScreen(mlLm, vp, mirrored) : null;
+    const mrPt = mrLm ? toScreen(mrLm, vp, mirrored) : null;
+    const nosePt = noseLm ? toScreen(noseLm, vp, mirrored) : null;
 
-    const headCenter = noseLm
-      ? mid(toScreen(noseLm, vp, mirrored), earMid)
-      : earMid;
+    const earMid = earsConf && leEarPt && reEarPt ? mid(leEarPt, reEarPt) : null;
+    const eyeMid = eyesConf && leEyePt && reEyePt ? mid(leEyePt, reEyePt) : null;
+    const mouthMid = mouthConf && mlPt && mrPt ? mid(mlPt, mrPt) : null;
 
-    const headWidthSpan = earsConf
-      ? dist(toScreen(leEarLm!, vp, mirrored), toScreen(reEarLm!, vp, mirrored))
-      : eyesConf
-        ? dist(toScreen(leEyeLm!, vp, mirrored), toScreen(reEyeLm!, vp, mirrored)) * 2.2
-        : shoulderSpan * 0.42;
+    const headRefCenter =
+      nosePt && earMid
+        ? mid(nosePt, earMid)
+        : eyeMid ?? nosePt ?? earMid ?? shoulderMid;
 
-    const headHeight = Math.max(headWidthSpan * 1.35, 36);
-    const upDir = shouldersConf
-      ? normalizeVec(headCenter.x - shoulderMid.x, headCenter.y - shoulderMid.y)
-      : { x: 0, y: -1 };
-    const headTop = {
-      x: headCenter.x + upDir.x * headHeight * 0.56,
-      y: headCenter.y + upDir.y * headHeight * 0.56
-    };
-    const chinPt = mouthConf
-      ? lerpPt(
-          headCenter,
-          mid(toScreen(mlLm!, vp, mirrored), toScreen(mrLm!, vp, mirrored)),
-          1.75
-        )
-      : {
-          x: headCenter.x - upDir.x * headHeight * 0.46,
-          y: headCenter.y - upDir.y * headHeight * 0.46
-        };
+    // Multi-cue cranial width so slight head turns never collapse horizontal scale
+    const earWidthEst =
+      earsConf && leEarPt && reEarPt ? dist(leEarPt, reEarPt) * 1.24 : 0;
+    const eyeWidthEst =
+      eyesConf && leEyePt && reEyePt ? dist(leEyePt, reEyePt) * 2.55 : 0;
+    const mouthWidthEst =
+      mouthConf && mlPt && mrPt ? dist(mlPt, mrPt) * 2.85 : 0;
+    const shoulderHeadWidthFloor = shouldersConf ? shoulderSpan * 0.44 : 0;
 
-    const headAxisU = earsConf
+    const cranialWidth = Math.max(
+      earWidthEst,
+      eyeWidthEst,
+      mouthWidthEst,
+      shoulderHeadWidthFloor,
+      34
+    );
+
+    const shoulderHeadAxis = shouldersConf
       ? normalizeVec(
-          toScreen(leEarLm!, vp, mirrored).x - toScreen(reEarLm!, vp, mirrored).x,
-          toScreen(leEarLm!, vp, mirrored).y - toScreen(reEarLm!, vp, mirrored).y
+          headRefCenter.x - shoulderMid.x,
+          headRefCenter.y - shoulderMid.y
         )
-      : torsoAxisU;
+      : { x: 0, y: -1 };
+    const faceUpAxis =
+      eyeMid && mouthMid
+        ? normalizeVec(eyeMid.x - mouthMid.x, eyeMid.y - mouthMid.y)
+        : shoulderHeadAxis;
+    const upDir =
+      eyeMid && mouthMid && shouldersConf
+        ? normalizeVec(
+            faceUpAxis.x * 0.75 + shoulderHeadAxis.x * 0.25,
+            faceUpAxis.y * 0.75 + shoulderHeadAxis.y * 0.25
+          )
+        : faceUpAxis;
+
+    const eyeMouthHeightEst =
+      eyeMid && mouthMid ? dist(eyeMid, mouthMid) * 3.15 : 0;
+    const shoulderHeadHeightEst = shouldersConf
+      ? dist(headRefCenter, shoulderMid) * 0.94
+      : 0;
+    const headHeight = Math.max(
+      cranialWidth * 1.22,
+      eyeMouthHeightEst,
+      shoulderHeadHeightEst,
+      42
+    );
+
+    // Face midpoint (v = 0.50) places eyes at ~0.44, nose at ~0.56, mouth at ~0.74
+    const faceAnchor =
+      eyeMid && mouthMid ? lerpPt(eyeMid, mouthMid, 0.2) : headRefCenter;
+
+    const headTop = {
+      x: faceAnchor.x + upDir.x * headHeight * 0.5,
+      y: faceAnchor.y + upDir.y * headHeight * 0.5
+    };
+    const chinPt = {
+      x: faceAnchor.x - upDir.x * headHeight * 0.5,
+      y: faceAnchor.y - upDir.y * headHeight * 0.5
+    };
+
+    const headAxisU =
+      earsConf && leEarPt && reEarPt
+        ? normalizeVec(leEarPt.x - reEarPt.x, leEarPt.y - reEarPt.y)
+        : eyesConf && leEyePt && reEyePt
+          ? normalizeVec(leEyePt.x - reEyePt.x, leEyePt.y - reEyePt.y)
+          : torsoAxisU;
 
     boxes.set(
       'head',
@@ -368,7 +413,7 @@ export function buildSegmentRig(
         'midline',
         headTop,
         chinPt,
-        headWidthSpan * 0.58,
+        cranialWidth * 0.52,
         bodyLeftPointsPositiveX,
         true,
         headAxisU
@@ -376,8 +421,8 @@ export function buildSegmentRig(
     );
 
     if (shouldersConf) {
-      const neckTop = lerpPt(headCenter, chinPt, 0.55);
-      const neckBottom = lerpPt(shoulderMid, hipMid, hipsConf ? 0.04 : 0.0);
+      const neckTop = lerpPt(headTop, chinPt, 0.82);
+      const neckBottom = lerpPt(shoulderMid, hipMid, hipsConf ? 0.05 : 0.0);
       boxes.set(
         'neck',
         makeSegmentFromEndpoints(
@@ -386,7 +431,7 @@ export function buildSegmentRig(
           'midline',
           neckTop,
           neckBottom,
-          Math.max(headWidthSpan * 0.42, shoulderSpan * 0.22),
+          Math.max(cranialWidth * 0.36, shoulderSpan * 0.19),
           bodyLeftPointsPositiveX,
           true,
           torsoAxisU

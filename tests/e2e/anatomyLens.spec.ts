@@ -109,4 +109,39 @@ test.describe('Anatomy Lens E2E (Still-Image Dev Input Mode)', () => {
     // Confirm zero external network requests were ever made
     expect(externalRequests).toEqual([]);
   });
+
+  test('focuses scaled facial muscles when moving the focus circle onto the head', async ({
+    page
+  }) => {
+    await page.setViewportSize({ width: 412, height: 915 });
+    await page.goto('/?devInput=anterior');
+
+    const canvas = page.getByTestId('lens-canvas');
+    await expect(canvas).toBeVisible();
+    const cloud = page.getByTestId('speech-cloud');
+    await expect(cloud).toBeVisible();
+
+    const box = await canvas.boundingBox();
+    expect(box).not.toBeNull();
+
+    // Drag focus circle from default center (0.5, 0.44) up to face center (0.5, 0.25)
+    const startX = box!.x + box!.width * 0.5;
+    const startY = box!.y + box!.height * 0.44;
+    const headX = box!.x + box!.width * 0.5;
+    const headY = box!.y + box!.height * 0.25;
+
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(headX, headY, { steps: 12 });
+    await page.mouse.up();
+
+    await expect(cloud).toHaveAttribute(
+      'data-structure-id',
+      /m_frontalis|m_orbicularis_oculi|m_temporalis|m_masseter|m_zygomaticus_major|m_orbicularis_oris/
+    );
+
+    if (screenshotDir) {
+      await page.screenshot({ path: `${screenshotDir}/head-muscles.png` });
+    }
+  });
 });

@@ -104,4 +104,56 @@ describe('Focus selection, tap-to-pin, partial bodies & anatomical left/right', 
     expect(rig.has('lower_leg:right')).toBe(false);
     expect(rig.has('foot:left')).toBe(false);
   });
+
+  it('scales head segment and facial muscles proportionally to head size and spans cranial width', () => {
+    const fullLms = getDevSampleLandmarks('anterior');
+    // Simulate stepping closer to the camera: scale pose 1.6x isotropically around torso/head center
+    const closeLms = fullLms.map((pt) => ({
+      ...pt,
+      x: 0.5 + (pt.x - 0.5) * 1.6,
+      y: 0.14 + (pt.y - 0.14) * 1.6
+    }));
+
+    const fullRig = buildSegmentRig(fullLms, viewport, false);
+    const closeRig = buildSegmentRig(closeLms, viewport, false);
+
+    const fullHead = fullRig.get('head');
+    const closeHead = closeRig.get('head');
+    expect(fullHead).toBeDefined();
+    expect(closeHead).toBeDefined();
+
+    // 1.6x scaled pose should yield ~1.6x larger head segment length & halfWidth
+    expect(closeHead!.length / fullHead!.length).toBeCloseTo(1.6, 1);
+    expect(closeHead!.halfWidth / fullHead!.halfWidth).toBeCloseTo(1.6, 1);
+
+    const fullMuscles = projectStructuresToScreen(fullRig, 'muscle', 'front');
+    const closeMuscles = projectStructuresToScreen(closeRig, 'muscle', 'front');
+
+    const getWidthSpan = (
+      instances: ReturnType<typeof projectStructuresToScreen>,
+      idPrefix: string
+    ) => {
+      const matching = instances.filter(
+        (inst) => inst.structure.segment === 'head' && inst.structure.id === idPrefix
+      );
+      expect(matching.length).toBeGreaterThan(0);
+      const minX = Math.min(...matching.map((m) => m.bounds.minX));
+      const maxX = Math.max(...matching.map((m) => m.bounds.maxX));
+      return maxX - minX;
+    };
+
+    for (const muscleId of ['m_frontalis', 'm_temporalis', 'm_masseter', 'm_orbicularis_oculi']) {
+      const fullSpan = getWidthSpan(fullMuscles, muscleId);
+      const closeSpan = getWidthSpan(closeMuscles, muscleId);
+      expect(closeSpan / fullSpan).toBeCloseTo(1.6, 1);
+    }
+
+    const headInstances = closeMuscles.filter((inst) => inst.structure.segment === 'head');
+    const totalMuscleMinX = Math.min(...headInstances.map((m) => m.bounds.minX));
+    const totalMuscleMaxX = Math.max(...headInstances.map((m) => m.bounds.maxX));
+    const totalMuscleSpan = totalMuscleMaxX - totalMuscleMinX;
+    const headFullWidth = closeHead!.halfWidth * 2;
+
+    expect(totalMuscleSpan).toBeGreaterThanOrEqual(headFullWidth * 0.7);
+  });
 });
